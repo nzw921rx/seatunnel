@@ -1,0 +1,318 @@
+# Instincts generated from https://github.com/nzw921rx/seatunnel
+# Generated: 2026-07-07T07:58:37.006Z
+# Version: 2.0
+# NOTE: This file supplements (does not replace) any existing curated instincts.
+# High-confidence manually curated instincts should be preserved alongside these.
+
+---
+id: seatunnel-commit-length
+trigger: "when writing a commit message"
+confidence: 0.6
+domain: git
+source: repo-analysis
+source_repo: https://github.com/nzw921rx/seatunnel
+---
+
+# Seatunnel Commit Length
+
+## Action
+
+Keep commit messages concise (~42 characters)
+
+## Evidence
+
+- Average commit message length: 42 chars
+- Based on 1 commits
+
+---
+id: seatunnel-naming-files
+trigger: "when creating a new file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/nzw921rx/seatunnel
+---
+
+# Seatunnel Naming Files
+
+## Action
+
+Use snake_case naming convention
+
+## Evidence
+
+- Analyzed file naming patterns in repository
+- Dominant pattern: snake_case
+
+---
+id: seatunnel-import-relative
+trigger: "when importing modules"
+confidence: 0.75
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/nzw921rx/seatunnel
+---
+
+# Seatunnel Import Relative
+
+## Action
+
+Use relative imports for project files
+
+## Evidence
+
+- Import analysis shows relative import pattern
+- Example: import { x } from '../lib/x'
+
+---
+id: seatunnel-export-style
+trigger: "when exporting from a module"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/nzw921rx/seatunnel
+---
+
+# Seatunnel Export Style
+
+## Action
+
+Prefer named exports
+
+## Evidence
+
+- Export pattern analysis
+- Dominant style: named
+
+---
+id: seatunnel-test-naming
+trigger: "when creating a test file"
+confidence: 0.85
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/nzw921rx/seatunnel
+---
+
+# Seatunnel Test Naming
+
+## Action
+
+Name test files using the pattern: *.test.ts
+
+## Evidence
+
+- File pattern: *.test.ts
+- Consistent across test files
+
+---
+id: seatunnel-test-types
+trigger: "when planning tests for a feature"
+confidence: 0.7
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/nzw921rx/seatunnel
+---
+
+# Seatunnel Test Types
+
+## Action
+
+Write unit, e2e tests to match project standards
+
+## Evidence
+
+- Test types detected: unit, e2e
+- Coverage config: no
+
+---
+id: seatunnel-instinct-class-naming
+trigger: "When creating a new Java class"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: nzw921rx/seatunnel
+---
+
+# Seatunnel Instinct Class Naming
+
+## Action
+
+Name the class using PascalCase
+
+## Evidence
+
+- Pattern in namingConventions.classes: PascalCase
+
+---
+id: seatunnel-instinct-function-naming
+trigger: "When defining a Java function"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: nzw921rx/seatunnel
+---
+
+# Seatunnel Instinct Function Naming
+
+## Action
+
+Use camelCase for the function name
+
+## Evidence
+
+- Pattern in namingConventions.functions: camelCase
+
+---
+id: seatunnel-instinct-constant-naming
+trigger: "When declaring a constant in Java"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: nzw921rx/seatunnel
+---
+
+# Seatunnel Instinct Constant Naming
+
+## Action
+
+Use SCREAMING_SNAKE_CASE for the constant name
+
+## Evidence
+
+- Pattern in namingConventions.constants: SCREAMING_SNAKE_CASE
+
+---
+id: seatunnel-instinct-file-naming
+trigger: "When creating a new file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: nzw921rx/seatunnel
+---
+
+# Seatunnel Instinct File Naming
+
+## Action
+
+Name the file using snake_case
+
+## Evidence
+
+- Pattern in namingConventions.files: snake_case
+
+---
+id: seatunnel-instinct-import-style
+trigger: "When importing modules in Java"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: nzw921rx/seatunnel
+---
+
+# Seatunnel Instinct Import Style
+
+## Action
+
+Use relative imports
+
+## Evidence
+
+- Pattern in importStyle: relative
+
+---
+id: seatunnel-instinct-export-style
+trigger: "When exporting modules or classes in Java"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: nzw921rx/seatunnel
+---
+
+# Seatunnel Instinct Export Style
+
+## Action
+
+Use named exports
+
+## Evidence
+
+- Pattern in exportStyle: named
+
+---
+id: seatunnel-instinct-test-file-pattern
+trigger: "When creating a test file"
+confidence: 0.7
+domain: testing
+source: repo-analysis
+source_repo: nzw921rx/seatunnel
+---
+
+# Seatunnel Instinct Test File Pattern
+
+## Action
+
+Name the file with the pattern *.test.ts
+
+## Evidence
+
+- Pattern in testing.filePattern: *.test.ts
+
+---
+id: seatunnel-instinct-test-types
+trigger: "When writing tests"
+confidence: 0.7
+domain: testing
+source: repo-analysis
+source_repo: nzw921rx/seatunnel
+---
+
+# Seatunnel Instinct Test Types
+
+## Action
+
+Include both unit and e2e test types
+
+## Evidence
+
+- Pattern in testing.testTypes: unit, e2e
+
+---
+id: seatunnel-instinct-test-location
+trigger: "When placing test files"
+confidence: 0.7
+domain: testing
+source: repo-analysis
+source_repo: nzw921rx/seatunnel
+---
+
+# Seatunnel Instinct Test Location
+
+## Action
+
+Place test files in mixed locations, including common folders like seatunnel-e2e
+
+## Evidence
+
+- Pattern in architecture.folderStructure.testLocation: mixed
+- Pattern in architecture.folderStructure.commonFolders: seatunnel-e2e
+
+---
+id: seatunnel-instinct-commit-prefix-test
+trigger: "When committing test-related changes"
+confidence: 0.9
+domain: git
+source: repo-analysis
+source_repo: nzw921rx/seatunnel
+---
+
+# Seatunnel Instinct Commit Prefix Test
+
+## Action
+
+Prefix the commit message with [Test]
+
+## Evidence
+
+- Seen in commit: [Test][E2E] Split Kafka start mode configs
+- Pattern in commits.prefixes: [Test]
+
