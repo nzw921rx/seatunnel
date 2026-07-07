@@ -1,0 +1,6 @@
+interface:
+  display_name: "Seatunnel"
+  short_description: "Repo-specific patterns and workflows for seatunnel"
+  default_prompt: "Use the seatunnel repo skill to follow existing architecture, testing, and workflow conventions."
+policy:
+  allow_implicit_invocation: true
