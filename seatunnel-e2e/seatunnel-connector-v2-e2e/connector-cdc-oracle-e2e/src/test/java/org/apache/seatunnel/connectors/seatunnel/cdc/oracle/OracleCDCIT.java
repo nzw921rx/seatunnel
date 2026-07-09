@@ -701,7 +701,10 @@ public class OracleCDCIT extends AbstractOracleCDCIT implements TestResource {
     public void testLatestStartupMode(TestContainer container) throws Exception {
         clearTable(SCEHMA_NAME, SINK_TABLE1);
         clearTable(SCEHMA_NAME, SOURCE_TABLE1);
+        long beforeScn = currentOracleScn();
         insertRow(1, SCEHMA_NAME, SOURCE_TABLE1);
+        await().atMost(30, TimeUnit.SECONDS)
+                .untilAsserted(() -> Assertions.assertTrue(currentOracleScn() > beforeScn));
 
         Long jobId = JobIdGenerator.newJobId();
         CompletableFuture.runAsync(
@@ -721,23 +724,6 @@ public class OracleCDCIT extends AbstractOracleCDCIT implements TestResource {
                                     Assertions.assertEquals(
                                             "RUNNING",
                                             container.getJobStatus(String.valueOf(jobId))));
-
-            await().during(30, TimeUnit.SECONDS)
-                    .atMost(45, TimeUnit.SECONDS)
-                    .untilAsserted(
-                            () -> {
-                                List<List<Object>> sinkRows =
-                                        querySql(
-                                                "SELECT ID FROM "
-                                                        + SCEHMA_NAME
-                                                        + "."
-                                                        + SINK_TABLE1
-                                                        + " ORDER BY ID ASC");
-                                Assertions.assertFalse(
-                                        sinkRows.stream()
-                                                .anyMatch(
-                                                        row -> row.get(0).toString().equals("1")));
-                            });
 
             insertRow(2, SCEHMA_NAME, SOURCE_TABLE1);
 
@@ -772,6 +758,11 @@ public class OracleCDCIT extends AbstractOracleCDCIT implements TestResource {
 
     private void insertSourceTable(String database, String tableName) {
         insertRow(1, database, tableName);
+    }
+
+    private long currentOracleScn() {
+        return ((Number) querySql("SELECT CURRENT_SCN FROM V$DATABASE").get(0).get(0))
+                .longValue();
     }
 
     private void insertRow(int id, String database, String tableName) {

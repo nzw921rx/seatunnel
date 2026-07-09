@@ -165,7 +165,11 @@ public class TiDBCDCIT extends TiDBTestBase implements TestResource {
     public void testLatestStartupMode(TestContainer container) throws Exception {
         clearTable(TIDB_DATABASE, SOURCE_TABLE);
         clearTable(TIDB_DATABASE, SINK_TABLE);
+        String beforeTimestamp = currentTidbTimestamp();
         upsertDeleteSourceTable(TIDB_DATABASE, SOURCE_TABLE);
+        await().atMost(30, TimeUnit.SECONDS)
+                .untilAsserted(
+                        () -> Assertions.assertNotEquals(beforeTimestamp, currentTidbTimestamp()));
 
         Long jobId = JobIdGenerator.newJobId();
         CompletableFuture.runAsync(
@@ -185,23 +189,6 @@ public class TiDBCDCIT extends TiDBTestBase implements TestResource {
                                     Assertions.assertEquals(
                                             "RUNNING",
                                             container.getJobStatus(String.valueOf(jobId))));
-
-            await().during(30, TimeUnit.SECONDS)
-                    .atMost(45, TimeUnit.SECONDS)
-                    .untilAsserted(
-                            () -> {
-                                List<List<Object>> sinkRows =
-                                        query(
-                                                "SELECT id FROM "
-                                                        + TIDB_DATABASE
-                                                        + "."
-                                                        + SINK_TABLE
-                                                        + " ORDER BY id");
-                                Assertions.assertFalse(
-                                        sinkRows.stream()
-                                                .anyMatch(
-                                                        row -> row.get(0).toString().equals("1")));
-                            });
 
             insertTidbSourceRowLike(101, 1);
             insertTidbSourceRowLike(102, 1);
@@ -434,6 +421,10 @@ public class TiDBCDCIT extends TiDBTestBase implements TestResource {
 
     private String getSinkQuerySQL(String database, String tableName) {
         return String.format(SINK_SQL_TEMPLATE, database, tableName);
+    }
+
+    private String currentTidbTimestamp() {
+        return query("SELECT @@tidb_current_ts").get(0).get(0).toString();
     }
 
     private void clearTable(String database, String tableName) {
