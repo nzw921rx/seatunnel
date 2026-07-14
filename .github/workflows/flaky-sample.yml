@@ -1,0 +1,470 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+name: Flaky Sample
+
+on:
+  schedule:
+    - cron: '0 18 * * 1-6'
+  workflow_dispatch:
+    inputs:
+      sample_profile:
+        description: 'minimal, daily, connector-front, connector-back, high-risk, weekly-full, or all'
+        required: false
+        default: daily
+      upstream_ref:
+        description: 'Upstream apache/seatunnel ref to sample'
+        required: false
+        default: dev
+  workflow_call:
+    inputs:
+      sample_profile:
+        required: false
+        type: string
+        default: daily
+      upstream_ref:
+        required: false
+        type: string
+        default: dev
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+concurrency:
+  group: flaky-sample-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  SOURCE_REPOSITORY: apache/seatunnel
+  UPSTREAM_REF: ${{ github.event.inputs.upstream_ref || inputs.upstream_ref || 'dev' }}
+  SAMPLE_PROFILE: ${{ github.event.inputs.sample_profile || inputs.sample_profile || 'daily' }}
+  OBSERVATORY_ISSUE_TITLE: '[CI][Flaky] 30-day dev branch and PR CI observatory'
+  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+jobs:
+  unit-test:
+    name: Unit test JDK ${{ matrix.java }}
+    if: ${{ (github.event.inputs.sample_profile || inputs.sample_profile || 'daily') != 'connector-front' && (github.event.inputs.sample_profile || inputs.sample_profile || 'daily') != 'connector-back' && (github.event.inputs.sample_profile || inputs.sample_profile || 'daily') != 'high-risk' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    strategy:
+      fail-fast: false
+      matrix:
+        java: [ '8', '11' ]
+    steps:
+      - name: Checkout observatory tooling
+        uses: actions/checkout@v4
+      - name: Checkout upstream dev
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SOURCE_REPOSITORY }}
+          ref: ${{ env.UPSTREAM_REF }}
+          path: seatunnel-src
+      - name: Set up JDK ${{ matrix.java }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: temurin
+          cache: maven
+      - name: Run unit tests
+        shell: bash
+        run: |
+          set +e
+          cd seatunnel-src
+          ./mvnw -B -T 1 clean verify -DskipUT=false -DskipIT=true -D"license.skipAddThirdParty"=true -D"skip.ui"=true --no-snapshot-updates 2>&1 | tee ../unit-test-jdk-${{ matrix.java }}.log
+          status=${PIPESTATUS[0]}
+          cd ..
+          set -e
+          python3 tools/ci/flaky/flaky_observatory.py collect \
+            --workspace seatunnel-src \
+            --output observations/unit-test-jdk-${{ matrix.java }}.jsonl \
+            --exit-code "$status" \
+            --log-file unit-test-jdk-${{ matrix.java }}.log \
+            --workflow "${{ github.workflow }}" \
+            --job "unit-test" \
+            --java "${{ matrix.java }}" \
+            --os "${{ runner.os }}" \
+            --run-url "$RUN_URL"
+          exit "$status"
+      - name: Upload unit observations
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flaky-observation-unit-jdk-${{ matrix.java }}
+          path: |
+            observations/*.jsonl
+            unit-test-jdk-${{ matrix.java }}.log
+            seatunnel-src/**/target/surefire-reports/**
+          if-no-files-found: ignore
+          retention-days: 45
+
+  engine-base-e2e:
+    name: Engine base E2E JDK ${{ matrix.java }}
+    if: ${{ (github.event.inputs.sample_profile || inputs.sample_profile || 'daily') != 'connector-front' && (github.event.inputs.sample_profile || inputs.sample_profile || 'daily') != 'connector-back' && (github.event.inputs.sample_profile || inputs.sample_profile || 'daily') != 'high-risk' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 170
+    strategy:
+      fail-fast: false
+      matrix:
+        java: [ '8', '11' ]
+    steps:
+      - name: Checkout observatory tooling
+        uses: actions/checkout@v4
+      - name: Checkout upstream dev
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SOURCE_REPOSITORY }}
+          ref: ${{ env.UPSTREAM_REF }}
+          path: seatunnel-src
+      - name: Set up JDK ${{ matrix.java }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: temurin
+          cache: maven
+      - name: Free disk space
+        run: seatunnel-src/tools/github/free_disk_space.sh
+      - name: Run engine base E2E
+        shell: bash
+        env:
+          TEST_IN_PR: 'false'
+          RUN_ALL_CONTAINER: 'true'
+          RUN_ZETA_CONTAINER: 'true'
+          MAVEN_OPTS: -Xmx4096m
+        run: |
+          set +e
+          cd seatunnel-src
+          ./mvnw -B -T 1 verify -DskipUT=true -DskipIT=false -D"license.skipAddThirdParty"=true -D"skip.ui"=true --no-snapshot-updates -pl :connector-seatunnel-e2e-base,:connector-console-seatunnel-e2e -am -Pci 2>&1 | tee ../engine-base-e2e-jdk-${{ matrix.java }}.log
+          status=${PIPESTATUS[0]}
+          cd ..
+          set -e
+          python3 tools/ci/flaky/flaky_observatory.py collect \
+            --workspace seatunnel-src \
+            --output observations/engine-base-e2e-jdk-${{ matrix.java }}.jsonl \
+            --exit-code "$status" \
+            --log-file engine-base-e2e-jdk-${{ matrix.java }}.log \
+            --workflow "${{ github.workflow }}" \
+            --job "engine-base-e2e" \
+            --java "${{ matrix.java }}" \
+            --os "${{ runner.os }}" \
+            --module "connector-seatunnel-e2e-base" \
+            --engine zeta \
+            --run-url "$RUN_URL"
+          exit "$status"
+      - name: Upload engine observations
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flaky-observation-engine-base-jdk-${{ matrix.java }}
+          path: |
+            observations/*.jsonl
+            engine-base-e2e-jdk-${{ matrix.java }}.log
+            seatunnel-src/**/target/failsafe-reports/**
+            seatunnel-src/**/target/surefire-reports/**
+          if-no-files-found: ignore
+          retention-days: 45
+
+  transform-e2e:
+    name: Transform E2E part ${{ matrix.part }} JDK ${{ matrix.java }}
+    if: ${{ (github.event.inputs.sample_profile || inputs.sample_profile || 'daily') != 'connector-front' && (github.event.inputs.sample_profile || inputs.sample_profile || 'daily') != 'connector-back' && (github.event.inputs.sample_profile || inputs.sample_profile || 'daily') != 'high-risk' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 170
+    strategy:
+      fail-fast: false
+      matrix:
+        java: [ '8', '11' ]
+        part: [ '1', '2' ]
+    steps:
+      - name: Checkout observatory tooling
+        uses: actions/checkout@v4
+      - name: Checkout upstream dev
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SOURCE_REPOSITORY }}
+          ref: ${{ env.UPSTREAM_REF }}
+          path: seatunnel-src
+      - name: Set up JDK ${{ matrix.java }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: temurin
+          cache: maven
+      - name: Free disk space
+        run: seatunnel-src/tools/github/free_disk_space.sh
+      - name: Run transform E2E
+        shell: bash
+        env:
+          TEST_IN_PR: 'false'
+          RUN_ALL_CONTAINER: 'true'
+          RUN_ZETA_CONTAINER: 'true'
+          MAVEN_OPTS: -Xmx4096m
+        run: |
+          set +e
+          cd seatunnel-src
+          ./mvnw -B -T 1 verify -DskipUT=true -DskipIT=false -D"license.skipAddThirdParty"=true -D"skip.ui"=true --no-snapshot-updates -pl :seatunnel-transforms-v2-e2e-part-${{ matrix.part }} -am -Pci 2>&1 | tee ../transform-e2e-part-${{ matrix.part }}-jdk-${{ matrix.java }}.log
+          status=${PIPESTATUS[0]}
+          cd ..
+          set -e
+          python3 tools/ci/flaky/flaky_observatory.py collect \
+            --workspace seatunnel-src \
+            --output observations/transform-e2e-part-${{ matrix.part }}-jdk-${{ matrix.java }}.jsonl \
+            --exit-code "$status" \
+            --log-file transform-e2e-part-${{ matrix.part }}-jdk-${{ matrix.java }}.log \
+            --workflow "${{ github.workflow }}" \
+            --job "transform-e2e-part-${{ matrix.part }}" \
+            --java "${{ matrix.java }}" \
+            --os "${{ runner.os }}" \
+            --module "seatunnel-transforms-v2-e2e-part-${{ matrix.part }}" \
+            --run-url "$RUN_URL"
+          exit "$status"
+      - name: Upload transform observations
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flaky-observation-transform-part-${{ matrix.part }}-jdk-${{ matrix.java }}
+          path: |
+            observations/*.jsonl
+            transform-e2e-part-${{ matrix.part }}-jdk-${{ matrix.java }}.log
+            seatunnel-src/**/target/failsafe-reports/**
+            seatunnel-src/**/target/surefire-reports/**
+          if-no-files-found: ignore
+          retention-days: 45
+
+  connector-shard-e2e:
+    name: Connector shard ${{ matrix.shard }} JDK ${{ matrix.java }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        java: [ '8', '11' ]
+        shard: [ '0', '1', '2', '3', '4', '5', '6', '7' ]
+    steps:
+      - name: Checkout observatory tooling
+        uses: actions/checkout@v4
+      - name: Decide shard schedule
+        id: shard
+        shell: bash
+        run: |
+          if python3 tools/ci/flaky/flaky_observatory.py should-run-shard --profile "$SAMPLE_PROFILE" --shard "${{ matrix.shard }}"; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Checkout upstream dev
+        if: steps.shard.outputs.run == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SOURCE_REPOSITORY }}
+          ref: ${{ env.UPSTREAM_REF }}
+          path: seatunnel-src
+      - name: Set up JDK ${{ matrix.java }}
+        if: steps.shard.outputs.run == 'true'
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: temurin
+          cache: maven
+      - name: Free disk space
+        if: steps.shard.outputs.run == 'true'
+        run: seatunnel-src/tools/github/free_disk_space.sh
+      - name: Run connector shard
+        if: steps.shard.outputs.run == 'true'
+        shell: bash
+        env:
+          TEST_IN_PR: 'false'
+          RUN_ALL_CONTAINER: 'true'
+          RUN_ZETA_CONTAINER: 'true'
+          MAVEN_OPTS: -Xmx4096m
+        run: |
+          set +e
+          cd seatunnel-src
+          ./mvnw help:evaluate -Dexpression=project.modules -q -DforceStdout -pl :seatunnel-connector-v2-e2e >> /tmp/sub_module.txt
+          sub_modules=`python tools/update_modules_check/update_modules_check.py sub /tmp/sub_module.txt`
+          run_it_modules=`python tools/update_modules_check/update_modules_check.py sub_it_module "$sub_modules" 8 ${{ matrix.shard }}`
+          if [ "${{ matrix.shard }}" = "1" ]; then
+            run_it_modules=${run_it_modules//:connector-iceberg-e2e,/}
+            run_it_modules=${run_it_modules//,:connector-iceberg-e2e/}
+            run_it_modules=${run_it_modules//:connector-hbase-e2e,/}
+            run_it_modules=${run_it_modules//,:connector-hbase-e2e/}
+          fi
+          if [ -z "$run_it_modules" ]; then
+            echo "No modules selected for shard ${{ matrix.shard }}"
+            status=0
+          else
+            ./mvnw -B -T 1 verify -DskipUT=true -DskipIT=false -D"license.skipAddThirdParty"=true -D"skip.ui"=true --no-snapshot-updates -pl "$run_it_modules" -am -Pci 2>&1 | tee ../connector-shard-${{ matrix.shard }}-jdk-${{ matrix.java }}.log
+            status=${PIPESTATUS[0]}
+          fi
+          cd ..
+          set -e
+          python3 tools/ci/flaky/flaky_observatory.py collect \
+            --workspace seatunnel-src \
+            --output observations/connector-shard-${{ matrix.shard }}-jdk-${{ matrix.java }}.jsonl \
+            --exit-code "$status" \
+            --log-file connector-shard-${{ matrix.shard }}-jdk-${{ matrix.java }}.log \
+            --workflow "${{ github.workflow }}" \
+            --job "connector-shard-${{ matrix.shard }}" \
+            --java "${{ matrix.java }}" \
+            --os "${{ runner.os }}" \
+            --module "connector-shard-${{ matrix.shard }}" \
+            --run-url "$RUN_URL"
+          exit "$status"
+      - name: Upload connector shard observations
+        if: always() && steps.shard.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: flaky-observation-connector-shard-${{ matrix.shard }}-jdk-${{ matrix.java }}
+          path: |
+            observations/*.jsonl
+            connector-shard-${{ matrix.shard }}-jdk-${{ matrix.java }}.log
+            seatunnel-src/**/target/failsafe-reports/**
+            seatunnel-src/**/target/surefire-reports/**
+          if-no-files-found: ignore
+          retention-days: 45
+
+  high-risk-e2e:
+    name: High-risk ${{ matrix.suite.name }} JDK ${{ matrix.java }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        java: [ '8', '11' ]
+        suite:
+          - name: jdbc-ddl
+            module: connector-jdbc-e2e-ddl
+          - name: kafka
+            module: connector-kafka-e2e
+          - name: rocketmq
+            module: connector-rocketmq-e2e
+          - name: doris
+            module: connector-doris-e2e
+          - name: paimon
+            module: connector-paimon-e2e
+          - name: oracle-cdc
+            module: connector-cdc-oracle-e2e
+          - name: local-file
+            module: connector-file-local-e2e
+          - name: sftp-file
+            module: connector-file-sftp-e2e
+          - name: redis
+            module: connector-redis-e2e
+          - name: sensorsdata
+            module: connector-sensorsdata-e2e
+          - name: iceberg-hbase
+            module: connector-iceberg-e2e,:connector-hbase-e2e
+    steps:
+      - name: Checkout observatory tooling
+        uses: actions/checkout@v4
+      - name: Decide high-risk schedule
+        id: special
+        shell: bash
+        run: |
+          if python3 tools/ci/flaky/flaky_observatory.py should-run-special --profile "$SAMPLE_PROFILE" --name "${{ matrix.suite.name }}"; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Checkout upstream dev
+        if: steps.special.outputs.run == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SOURCE_REPOSITORY }}
+          ref: ${{ env.UPSTREAM_REF }}
+          path: seatunnel-src
+      - name: Set up JDK ${{ matrix.java }}
+        if: steps.special.outputs.run == 'true'
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: temurin
+          cache: maven
+      - name: Free disk space
+        if: steps.special.outputs.run == 'true'
+        run: seatunnel-src/tools/github/free_disk_space.sh
+      - name: Run high-risk E2E
+        if: steps.special.outputs.run == 'true'
+        shell: bash
+        env:
+          TEST_IN_PR: 'false'
+          RUN_ALL_CONTAINER: 'true'
+          RUN_ZETA_CONTAINER: 'true'
+          MAVEN_OPTS: -Xmx4096m
+        run: |
+          set +e
+          cd seatunnel-src
+          ./mvnw -B -T 1 verify -DskipUT=true -DskipIT=false -D"license.skipAddThirdParty"=true -D"skip.ui"=true --no-snapshot-updates -pl :${{ matrix.suite.module }} -am -Pci 2>&1 | tee ../high-risk-${{ matrix.suite.name }}-jdk-${{ matrix.java }}.log
+          status=${PIPESTATUS[0]}
+          cd ..
+          set -e
+          python3 tools/ci/flaky/flaky_observatory.py collect \
+            --workspace seatunnel-src \
+            --output observations/high-risk-${{ matrix.suite.name }}-jdk-${{ matrix.java }}.jsonl \
+            --exit-code "$status" \
+            --log-file high-risk-${{ matrix.suite.name }}-jdk-${{ matrix.java }}.log \
+            --workflow "${{ github.workflow }}" \
+            --job "high-risk-${{ matrix.suite.name }}" \
+            --java "${{ matrix.java }}" \
+            --os "${{ runner.os }}" \
+            --module "${{ matrix.suite.module }}" \
+            --run-url "$RUN_URL"
+          exit "$status"
+      - name: Upload high-risk observations
+        if: always() && steps.special.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: flaky-observation-high-risk-${{ matrix.suite.name }}-jdk-${{ matrix.java }}
+          path: |
+            observations/*.jsonl
+            high-risk-${{ matrix.suite.name }}-jdk-${{ matrix.java }}.log
+            seatunnel-src/**/target/failsafe-reports/**
+            seatunnel-src/**/target/surefire-reports/**
+          if-no-files-found: ignore
+          retention-days: 45
+
+  update-tracking-issue:
+    name: Update flaky tracking issue
+    if: always()
+    needs:
+      - unit-test
+      - engine-base-e2e
+      - transform-e2e
+      - connector-shard-e2e
+      - high-risk-e2e
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout observatory tooling
+        uses: actions/checkout@v4
+      - name: Download observations
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: flaky-observation-*
+          path: observations
+          merge-multiple: true
+      - name: Update GitHub issue
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 tools/ci/flaky/flaky_observatory.py update-issue \
+            --records-dir observations \
+            --repository "${{ github.repository }}" \
+            --title "$OBSERVATORY_ISSUE_TITLE" \
+            --mode "$SAMPLE_PROFILE" \
+            --run-url "$RUN_URL"

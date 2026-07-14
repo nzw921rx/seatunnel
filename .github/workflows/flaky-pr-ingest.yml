@@ -1,0 +1,91 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+name: Flaky PR Ingest
+
+on:
+  schedule:
+    - cron: '20 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'Apache SeaTunnel PR number. Leave empty to scan recent open PRs.'
+        required: false
+        default: ''
+      lookback_days:
+        description: 'Recent PR updated window when pr_number is empty'
+        required: false
+        default: '2'
+      max_prs:
+        description: 'Maximum recent PRs to inspect'
+        required: false
+        default: '20'
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+concurrency:
+  group: flaky-pr-ingest-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  SOURCE_REPOSITORY: apache/seatunnel
+  OBSERVATORY_ISSUE_TITLE: '[CI][Flaky] 30-day dev branch and PR CI observatory'
+  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+jobs:
+  ingest-pr-ci:
+    name: Ingest Apache PR CI failures
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout observatory tooling
+        uses: actions/checkout@v4
+      - name: Ingest PR CI failures
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.inputs.pr_number || '' }}
+          LOOKBACK_DAYS: ${{ github.event.inputs.lookback_days || '2' }}
+          MAX_PRS: ${{ github.event.inputs.max_prs || '20' }}
+        run: |
+          python3 tools/ci/flaky/flaky_observatory.py ingest-pr \
+            --source-repository "$SOURCE_REPOSITORY" \
+            --pr-number "$PR_NUMBER" \
+            --lookback-days "$LOOKBACK_DAYS" \
+            --max-prs "$MAX_PRS" \
+            --output observations/pr-ci.jsonl \
+            --run-url "$RUN_URL"
+      - name: Upload PR observations
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flaky-observation-pr-ci
+          path: observations/*.jsonl
+          if-no-files-found: ignore
+          retention-days: 45
+      - name: Update GitHub issue
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 tools/ci/flaky/flaky_observatory.py update-issue \
+            --records-dir observations \
+            --repository "${{ github.repository }}" \
+            --title "$OBSERVATORY_ISSUE_TITLE" \
+            --mode pr-ingest \
+            --run-url "$RUN_URL"
