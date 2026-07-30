@@ -1,0 +1,100 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the 'License'); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an 'AS IS' BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+name: Benchmarks
+
+on:
+  schedule:
+    # Runs at 00:00 UTC every day.
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+    inputs:
+      seatunnel_ref:
+        description: 'SeaTunnel branch, tag, or commit SHA to benchmark.'
+        required: false
+        type: string
+        default: 'dev'
+      benchmarks:
+        description: 'JMH benchmark regex or class name. Leave empty to run all benchmarks.'
+        required: false
+        type: string
+        default: '.*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: benchmarks-${{ github.event.inputs.seatunnel_ref || 'dev' }}
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    name: Run benchmarks with Java ${{ matrix.java-version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    strategy:
+      fail-fast: false
+      matrix:
+        java-version: [ '8', '11' ]
+
+    env:
+      BENCHMARKS: ${{ github.event.inputs.benchmarks || '.*' }}
+      SEATUNNEL_REF: ${{ github.event.inputs.seatunnel_ref || 'dev' }}
+    steps:
+      - name: Checkout SeaTunnel
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.inputs.seatunnel_ref || 'dev' }}
+
+      - name: Set up JDK ${{ matrix.java-version }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java-version }}
+          cache: maven
+
+      - name: Show benchmark context
+        run: |
+          echo "SeaTunnel ref: ${SEATUNNEL_REF}"
+          echo "Resolved commit: $(git rev-parse HEAD)"
+          echo "Benchmarks: ${BENCHMARKS}"
+          echo "Java version:"
+          java -version
+
+      - name: Build benchmark module
+        run: ./mvnw -Pbenchmark -pl seatunnel-benchmarks -am -DskipTests package
+
+      - name: Run benchmark
+        run: |
+          safe_ref=$(printf '%s' "${SEATUNNEL_REF}" | tr '/:@ ' '----' | tr -cd 'A-Za-z0-9._-')
+          result_dir="seatunnel-benchmarks/target/benchmark-results"
+          mkdir -p "${result_dir}"
+
+          java -jar seatunnel-benchmarks/target/benchmarks.jar "${BENCHMARKS}" \
+            -f 1 \
+            -wi 3 \
+            -i 5 \
+            -rf json \
+            -rff "${result_dir}/seatunnel-benchmarks-${safe_ref}-java${{ matrix.java-version }}.json"
+
+      - name: Upload benchmark result
+        uses: actions/upload-artifact@v4
+        with:
+          name: seatunnel-benchmarks-java${{ matrix.java-version }}-${{ github.run_id }}
+          path: seatunnel-benchmarks/target/benchmark-results/**
