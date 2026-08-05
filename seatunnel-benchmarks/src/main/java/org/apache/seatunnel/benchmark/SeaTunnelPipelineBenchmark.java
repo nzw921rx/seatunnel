@@ -48,13 +48,13 @@ public class SeaTunnelPipelineBenchmark extends BenchmarkBase {
 
     public static final int RECORDS_PER_INVOCATION = 1_000_000;
 
-    @Param("250000")
+    @Param("600000")
     private long offeredRatePerSecond;
 
     @Param("4")
     private int parallelism;
 
-    @Param({"64", "128", "256", "512"})
+    @Param("256")
     private int payloadSize;
 
     @Param("64")

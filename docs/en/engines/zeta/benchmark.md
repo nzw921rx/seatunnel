@@ -4,10 +4,10 @@ title: Zeta Benchmark
 
 # Zeta Benchmark
 
-Zeta benchmarks measure engine throughput, latency, and stability under fixed resources and load.
-Teams evaluating Zeta can use them to determine whether the available resources sustain the expected
-input rate, whether tail latency grows near capacity, and how much Transform, backpressure
-observability, or StainTrace adds to the cost.
+This chapter explains how to run repeatable Zeta benchmarks under fixed resources and load, and how
+to interpret throughput, latency, and stability without overstating the result. A comparison is
+meaningful only when the code revision, JDK, machine, JVM limits, workload, and JMH configuration are
+recorded and kept consistent.
 
 The benchmarks run the current in-repository Zeta code and provide a repeatable local baseline. They
 exclude real connectors, external systems, network costs, and multi-node communication, so they do
@@ -26,6 +26,7 @@ The MiniCluster starts during JMH Trial setup and is outside the measurement. Jo
 scheduling, Source, Transform, Sink, and job completion are inside the JMH measurement.
 
 ```mermaid
+%%{init: {"theme": "base", "themeVariables": {"background": "#0f1d33", "primaryColor": "#0c2530", "primaryBorderColor": "#2dd4bf", "primaryTextColor": "#f8fbff", "actorBkg": "#0c2530", "actorBorder": "#2dd4bf", "actorTextColor": "#f8fbff", "activationBkgColor": "#1f1a34", "activationBorderColor": "#8d7cf6", "noteBkgColor": "#1f1a34", "noteBorderColor": "#8d7cf6", "noteTextColor": "#f8fbff", "signalColor": "#5db8e2", "signalTextColor": "#f8fbff", "labelBoxBkgColor": "#0f1d33", "labelBoxBorderColor": "#5db8e2", "labelTextColor": "#f8fbff", "loopTextColor": "#f8fbff"}}}%%
 flowchart LR
     Setup["Start MiniCluster<br/>outside JMH timing"] -.-> Submit["Submit job<br/>start timing"]
     Submit --> Source["BenchmarkSource"]
@@ -40,17 +41,18 @@ The Source follows an absolute open-loop schedule. Each row carries its planned 
 Zeta falls behind, planned time continues to advance, so queueing and backlog remain visible in
 event-time latency instead of being hidden while the Source waits for the engine.
 
-### Pipeline Scenarios
+### Test Scope
 
-| JMH method | Measurement |
+| JMH selector | Data path and purpose |
 |---|---|
-| `sourceSink` | `Source -> Sink`, the engine baseline without Transform work. |
-| `sourceTransformSink` | `Source -> Transform -> Sink`, including per-row copy and transform work. |
-| `sourceTransformSinkWithBackpressure` | The Transform pipeline with observability and a bounded async boundary, measuring the backpressure-observation path. |
-| `sourceTransformSinkWithTrace` | The Transform pipeline with StainTrace sampling and local Trace output. |
-| `sourceTransformSinkWithBackpressureAndTrace` | Backpressure observability and StainTrace enabled together. |
+| `sourceSink` | `Source -> Sink`; baseline Zeta data path. |
+| `sourceTransformSink` | `Source -> Transform -> Sink`; adds row copy and deterministic Transform work. |
+| `sourceTransformSinkWithBackpressure` | The same Transform pipeline with backpressure observability enabled. |
+| `sourceTransformSinkWithTrace` | The same Transform pipeline with StainTrace enabled. |
+| `sourceTransformSinkWithBackpressureAndTrace` | Both observability features enabled, isolating their combined overhead. |
 
-The backpressure scenario does not throttle the Sink by itself. To observe overload, set
+These scenarios compare one controlled data path while changing only Transform or observability
+features. The backpressure scenario does not artificially throttle the Sink; to test overload, set
 `offeredRatePerSecond` above engine capacity and inspect throughput, P99, and latency growth.
 
 ### Default Resources
@@ -62,8 +64,8 @@ The backpressure scenario does not throttle the Sink by itself. To observe overl
 | Garbage collector | G1 with pre-touch |
 | Zeta slots / pipeline parallelism | 12 / 4 |
 | Records per invocation | 1,000,000 |
-| Offered rate | 250,000 rows/s |
-| Payload sizes | 64, 128, 256, and 512 characters |
+| Offered rate | 600,000 rows/s |
+| Payload size | 256 characters |
 | Transform work | 64 hash operations per row |
 | JMH forks | 3 |
 | Warmup / measurement iterations | 3 / 5 |
@@ -88,12 +90,12 @@ java -jar seatunnel-benchmarks/target/benchmarks.jar -l
 ### Run a Complete Pipeline
 
 For a steady-load evaluation, fix one pipeline and payload size and save standard JMH JSON. The
-following command checks whether Zeta can sustain 250,000 scheduled rows per second:
+following command checks whether Zeta can sustain 600,000 scheduled rows per second:
 
 ```bash
 java -jar seatunnel-benchmarks/target/benchmarks.jar \
   'sourceTransformSink$' \
-  -p offeredRatePerSecond=250000 \
+  -p offeredRatePerSecond=600000 \
   -p parallelism=4 \
   -p payloadSize=256 \
   -p transformOperations=64 \
@@ -103,11 +105,11 @@ java -jar seatunnel-benchmarks/target/benchmarks.jar \
 
 Change only `offeredRatePerSecond` while finding the capacity boundary. Start above expected
 capacity and lower the rate until output is complete and P99 no longer grows throughout the run.
-For example, use `-p offeredRatePerSecond=1000000` to start a payload-capacity comparison above the
-default load. Use `0` only to measure an unpaced throughput ceiling; without an open-loop schedule,
-that mode cannot expose latency caused by queued input.
+For example, use `-p offeredRatePerSecond=1000000` to start a capacity comparison above the default
+load. Use `0` only to measure an unpaced throughput ceiling; without an open-loop schedule, that
+mode cannot expose latency caused by queued input.
 
-Run all five pipeline scenarios with the default payload matrix:
+Run all five pipeline scenarios with the default workload:
 
 ```bash
 java -jar seatunnel-benchmarks/target/benchmarks.jar SeaTunnelPipelineBenchmark
@@ -220,11 +222,10 @@ Generate JMH JSON with `-rf json -rff <file>`, open
 method name and parameters.
 
 JMH Visualizer combines parameter values into labels. For example,
-`250000:4:256:64` means `offeredRatePerSecond=250000`, `parallelism=4`, `payloadSize=256`, and
-`transformOperations=64`, in the order shown in the chart legend. Similar scores at the default
-250,000 rows/s load mean that every payload size sustained the same paced input; they do not prove
-that all payload sizes have the same maximum throughput. Raise the offered rate and inspect the
-Pipeline JSON latency and completeness fields when comparing capacity.
+`600000:4:256:64` means `offeredRatePerSecond=600000`, `parallelism=4`, `payloadSize=256`, and
+`transformOperations=64`, in the order shown in the chart legend. JMH Score includes job submission,
+scheduling, and complete pipeline execution. Inspect the Pipeline JSON throughput, latency, and
+completeness fields before deciding whether the configured load is sustainable.
 
 Files under `pipeline-results` are custom JSON rather than JMH JSON. Inspect them directly or use the
 Markdown and normalized JSON reports produced by GitHub Actions.
@@ -232,8 +233,8 @@ Markdown and normalized JSON reports produced by GitHub Actions.
 ## Performance Cost and Limitations
 
 - A pipeline benchmark starts an embedded Zeta cluster and requires at least 4 GiB of available heap.
-- A complete run uses 3 forks, 3 warmup iterations, and 5 measurement iterations. Running all
-  scenarios and payload sizes takes substantially longer than a smoke test.
+- A complete run uses 3 forks, 3 warmup iterations, and 5 measurement iterations. Running all five
+  scenarios takes substantially longer than a smoke test.
 - `ActiveProcessorCount=4` limits processors visible to the JVM; it does not provide operating-system
   CPU affinity.
 - GitHub-hosted runners are suitable for functional checks, history collection, and large
@@ -242,8 +243,9 @@ Markdown and normalized JSON reports produced by GitHub Actions.
   same worker.
 - This benchmark excludes real connectors, external brokers, network, disk, and multi-node costs.
 
-Before adopting Zeta, repeat the final test with production connectors and external systems, and
-confirm the result with error logs, checkpoint status, and external-system monitoring.
+To measure production end-to-end performance, repeat the experiment with the required connectors and
+external systems, and correlate the result with error logs, checkpoint status, and external-system
+monitoring.
 
 ## References
 

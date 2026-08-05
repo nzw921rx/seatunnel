@@ -4,9 +4,9 @@ title: Zeta 基准测试
 
 # Zeta 基准测试
 
-Zeta 基准测试用于评估引擎在固定资源和固定负载下的吞吐、延迟和稳定性。准备引入 Zeta 的
-团队可以用它回答：当前资源能否持续承载预期输入速率，接近容量上限时尾延迟是否持续增长，
-以及 Transform、背压可观测性和 StainTrace 会增加多少开销。
+本章说明如何在固定资源和固定负载下运行可重复的 Zeta 基准测试，以及如何解释吞吐、延迟和
+稳定性而不过度推断结果。只有记录并保持代码版本、JDK、机器、JVM 限制、负载和 JMH 配置
+一致，两个结果才具有可比性。
 
 该测试直接运行当前仓库中的 Zeta 代码，适合建立可重复的本地基线。它不包含真实 Connector、
 外部系统、网络和多节点开销，因此不能替代生产环境 PoC。
@@ -23,6 +23,7 @@ MiniCluster 在每个 JMH Trial 的 Setup 阶段启动，不计入测量。作�
 Transform、Sink 和作业完成都计入 JMH 测量。
 
 ```mermaid
+%%{init: {"theme": "base", "themeVariables": {"background": "#0f1d33", "primaryColor": "#0c2530", "primaryBorderColor": "#2dd4bf", "primaryTextColor": "#f8fbff", "actorBkg": "#0c2530", "actorBorder": "#2dd4bf", "actorTextColor": "#f8fbff", "activationBkgColor": "#1f1a34", "activationBorderColor": "#8d7cf6", "noteBkgColor": "#1f1a34", "noteBorderColor": "#8d7cf6", "noteTextColor": "#f8fbff", "signalColor": "#5db8e2", "signalTextColor": "#f8fbff", "labelBoxBkgColor": "#0f1d33", "labelBoxBorderColor": "#5db8e2", "labelTextColor": "#f8fbff", "loopTextColor": "#f8fbff"}}}%%
 flowchart LR
     Setup["启动 MiniCluster<br/>不计入 JMH"] -.-> Submit["提交作业<br/>开始计时"]
     Submit --> Source["BenchmarkSource"]
@@ -37,18 +38,18 @@ Source 使用基于绝对时间的开环调度。每条记录都携带计划生�
 时间仍持续向前推进，因此排队和 backlog 会体现在 event-time latency 中，不会因 Source
 等待引擎而被隐藏。
 
-### Pipeline 场景
+### 测试范围
 
-| JMH 方法 | 测试内容 |
+| JMH 选择器 | 数据链路与目的 |
 |---|---|
-| `sourceSink` | `Source -> Sink`，不包含 Transform 工作的引擎基线。 |
-| `sourceTransformSink` | `Source -> Transform -> Sink`，测试逐行复制和转换的开销。 |
-| `sourceTransformSinkWithBackpressure` | Transform 链路开启可观测性并加入有界 async boundary，测试背压观测链路的开销。 |
-| `sourceTransformSinkWithTrace` | Transform 链路开启 StainTrace 采样和本地 Trace 输出，测试 Trace 开销。 |
-| `sourceTransformSinkWithBackpressureAndTrace` | 同时开启背压可观测性与 StainTrace，测试组合开销。 |
+| `sourceSink` | `Source -> Sink`，作为 Zeta 数据链路基线。 |
+| `sourceTransformSink` | `Source -> Transform -> Sink`，增加 Row 复制和确定性的 Transform 工作。 |
+| `sourceTransformSinkWithBackpressure` | 在相同 Transform 链路上开启背压可观测性。 |
+| `sourceTransformSinkWithTrace` | 在相同 Transform 链路上开启 StainTrace。 |
+| `sourceTransformSinkWithBackpressureAndTrace` | 同时开启两项可观测能力，用于隔离组合开销。 |
 
-背压场景不会主动限制 Sink。要观察过载，应将 `offeredRatePerSecond` 设置到高于引擎容量，
-再检查吞吐、P99 和延迟增长。
+这些场景保持数据链路一致，只改变 Transform 或可观测能力。背压场景不会人为限制 Sink；要
+测试过载，应将 `offeredRatePerSecond` 设置到高于引擎容量，再检查吞吐、P99 和延迟增长。
 
 ### 默认测试资源
 
@@ -59,8 +60,8 @@ Source 使用基于绝对时间的开环调度。每条记录都携带计划生�
 | 垃圾回收器 | G1，并启用 pre-touch |
 | Zeta slot / Pipeline 并行度 | 12 / 4 |
 | 每次 invocation 记录数 | 1,000,000 |
-| 输入速率 | 250,000 行/秒 |
-| Payload 大小 | 64、128、256、512 个字符 |
+| 输入速率 | 600,000 行/秒 |
+| Payload 大小 | 256 个字符 |
 | Transform 工作量 | 每行 64 次 hash 操作 |
 | JMH fork | 3 |
 | 预热 / 测量 iteration | 3 / 5 |
@@ -84,12 +85,12 @@ java -jar seatunnel-benchmarks/target/benchmarks.jar -l
 ### 运行完整 Pipeline
 
 评估固定负载时，建议先固定一条链路和一种 Payload，并保存标准 JMH JSON。下面的命令用于
-检查 Zeta 能否持续处理每秒计划输入的 250,000 行数据：
+检查 Zeta 能否持续处理每秒计划输入的 600,000 行数据：
 
 ```bash
 java -jar seatunnel-benchmarks/target/benchmarks.jar \
   'sourceTransformSink$' \
-  -p offeredRatePerSecond=250000 \
+  -p offeredRatePerSecond=600000 \
   -p parallelism=4 \
   -p payloadSize=256 \
   -p transformOperations=64 \
@@ -99,10 +100,10 @@ java -jar seatunnel-benchmarks/target/benchmarks.jar \
 
 寻找容量边界时，每次只修改 `offeredRatePerSecond`。先从高于预期容量的速率开始，再逐步
 降低，直到输出完整并且 P99 不再随运行持续增长。例如，可以先设置
-`-p offeredRatePerSecond=1000000`，在高于默认负载的位置比较不同 Payload 的容量。只有在
+`-p offeredRatePerSecond=1000000`，从高于默认负载的位置开始扫描容量。只有在
 测量不控速的吞吐上限时才使用 `0`；该模式没有开环调度，无法暴露输入排队产生的延迟。
 
-使用默认 Payload 矩阵运行全部五个 Pipeline 场景：
+使用默认负载运行全部五个 Pipeline 场景：
 
 ```bash
 java -jar seatunnel-benchmarks/target/benchmarks.jar SeaTunnelPipelineBenchmark
@@ -213,11 +214,10 @@ Transform 工作量必须相同。
 [JMH Visualizer](https://jmh.morethan.io/)，按方法名和参数比较 Score、Error、fork 和
 iteration。
 
-JMH Visualizer 会把参数值拼成标签。例如 `250000:4:256:64` 依次表示
-`offeredRatePerSecond=250000`、`parallelism=4`、`payloadSize=256` 和
-`transformOperations=64`，顺序与图例一致。默认 250,000 行/秒负载下的 Score 很接近，
-说明不同 Payload 都跟上了同一个限速输入，并不代表它们的最大吞吐相同。比较容量时，需要
-提高 offered rate，并结合 Pipeline JSON 的延迟和完整性字段判断。
+JMH Visualizer 会把参数值拼成标签。例如 `600000:4:256:64` 依次表示
+`offeredRatePerSecond=600000`、`parallelism=4`、`payloadSize=256` 和
+`transformOperations=64`，顺序与图例一致。JMH Score 包含作业提交、调度和完整 Pipeline
+执行时间。判断该负载是否可持续时，还需要结合 Pipeline JSON 的吞吐、延迟和完整性字段。
 
 `pipeline-results` 下的 JSON 不是 JMH 格式，应直接查看，或者使用 GitHub Actions 生成的
 Markdown 和标准化 JSON 报告。
@@ -225,14 +225,14 @@ Markdown 和标准化 JSON 报告。
 ## 开销与限制
 
 - Pipeline Benchmark 会在本机启动嵌入式 Zeta 集群，需要至少 4 GiB 可用堆内存。
-- 完整测试包含 3 个 fork、3 次预热和 5 次测量；运行全部场景和 Payload 会花费较长时间。
+- 完整测试包含 3 个 fork、3 次预热和 5 次测量；运行全部五个场景会花费较长时间。
 - `ActiveProcessorCount=4` 只限制 JVM 可见处理器数量，不提供操作系统级 CPU 绑核。
 - GitHub-hosted Runner 适合功能验证、历史采集和发现数量级回归，但底层 CPU 会变化。
 - 精细性能对比应使用固定 self-hosted 机器，或在同一 Worker 上交替运行 Base 与 Candidate。
 - 本测试不包含真实 Connector、外部消息队列、网络、磁盘和多节点通信成本。
 
-决定引入 Zeta 前，应使用生产 Connector 和外部系统重复最终测试，并结合错误日志、Checkpoint
-状态和外部系统监控判断结果。
+测量生产端到端性能时，应使用所需 Connector 和外部系统重复实验，并结合错误日志、Checkpoint
+状态和外部系统监控解释结果。
 
 ## 参考资料
 
