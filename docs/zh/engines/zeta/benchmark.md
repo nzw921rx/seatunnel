@@ -1,63 +1,95 @@
 ---
-title: 基准测试
+title: Zeta 基准测试
 ---
 
 # Zeta 基准测试
 
-## 为什么需要基准测试
+Zeta 基准测试用于评估引擎在固定资源和固定负载下的吞吐、延迟和稳定性。准备引入 Zeta 的
+团队可以用它回答：当前资源能否持续承载预期输入速率，接近容量上限时尾延迟是否持续增长，
+以及 Transform、背压可观测性和 StainTrace 会增加多少开销。
 
-单次运行很难说明代码的真实性能。JVM 预热、JIT 编译、垃圾回收、宿主机负载和 CPU
-型号都会让同一份代码得到不同结果。因此，有效的基准测试需要固定负载与运行资源，在多个
-独立 JVM 中重复测量，保留原始样本，并在相同条件下比较变更。
+该测试直接运行当前仓库中的 Zeta 代码，适合建立可重复的本地基线。它不包含真实 Connector、
+外部系统、网络和多节点开销，因此不能替代生产环境 PoC。
 
-`seatunnel-benchmarks` 模块提供两种互补的性能证据：
+## 工作原理
 
-- JMH 微基准用于隔离 `SeaTunnelRow` 等热点路径。
-- Zeta 完整链路基准会启动单节点嵌入式集群，并执行两种有界作业：
+`seatunnel-benchmarks` 提供两类测试：
 
-```text
-BenchmarkSource -> BenchmarkSink
-BenchmarkSource -> BenchmarkTransform -> BenchmarkSink
+- `SeaTunnelRowBenchmark`：测试 Row 创建、读取、复制、投影和大小计算等热点代码。
+- `SeaTunnelPipelineBenchmark`：启动单节点嵌入式 Zeta 集群，并通过正常的 Client 和配置
+  解析 API 运行完整的有界作业。
+
+MiniCluster 在每个 JMH Trial 的 Setup 阶段启动，不计入测量。作业提交、调度、Source、
+Transform、Sink 和作业完成都计入 JMH 测量。
+
+```mermaid
+flowchart LR
+    Setup["启动 MiniCluster<br/>不计入 JMH"] -.-> Submit["提交作业<br/>开始计时"]
+    Submit --> Source["BenchmarkSource"]
+    Source --> Transform["BenchmarkTransform<br/>可选"]
+    Transform --> Sink["BenchmarkSink"]
+    Sink --> Finish["作业完成<br/>停止计时"]
+    Source -. "计划生成时间" .-> Sink
+    Sink -.-> Result["Pipeline JSON<br/>吞吐与延迟"]
 ```
 
-Pipeline Source 使用绝对时间的开环调度。当 Zeta 跟不上输入速率时，等待时间仍会体现在
-event-time latency 中，不会被背压隐藏。这些基准用于发现性能变化并解释成本；任意机器上的
-一次运行不能代表通用性能结论。
+Source 使用基于绝对时间的开环调度。每条记录都携带计划生成时间；当 Zeta 跟不上时，计划
+时间仍持续向前推进，因此排队和 backlog 会体现在 event-time latency 中，不会因 Source
+等待引擎而被隐藏。
 
-## 如何运行
+### Pipeline 场景
 
-构建 benchmark runner 以及当前仓库中的引擎代码：
+| JMH 方法 | 测试内容 |
+|---|---|
+| `sourceSink` | `Source -> Sink`，不包含 Transform 工作的引擎基线。 |
+| `sourceTransformSink` | `Source -> Transform -> Sink`，测试逐行复制和转换的开销。 |
+| `sourceTransformSinkWithBackpressure` | Transform 链路开启可观测性并加入有界 async boundary，测试背压观测链路的开销。 |
+| `sourceTransformSinkWithTrace` | Transform 链路开启 StainTrace 采样和本地 Trace 输出，测试 Trace 开销。 |
+| `sourceTransformSinkWithBackpressureAndTrace` | 同时开启背压可观测性与 StainTrace，测试组合开销。 |
+
+背压场景不会主动限制 Sink。要观察过载，应将 `offeredRatePerSecond` 设置到高于引擎容量，
+再检查吞吐、P99 和延迟增长。
+
+### 默认测试资源
+
+| 配置 | 默认值 |
+|---|---:|
+| JVM 堆内存 | 固定 4 GiB `-Xms` / `-Xmx` |
+| JVM 可见处理器 | 4 |
+| 垃圾回收器 | G1，并启用 pre-touch |
+| Zeta slot / Pipeline 并行度 | 12 / 4 |
+| 每次 invocation 记录数 | 1,000,000 |
+| 输入速率 | 250,000 行/秒 |
+| Payload 大小 | 64、128、256、512 个字符 |
+| Transform 工作量 | 每行 64 次 hash 操作 |
+| JMH fork | 3 |
+| 预热 / 测量 iteration | 3 / 5 |
+
+这些 JVM 限制由 Benchmark 类传给 fork JVM，Workflow 不需要重复配置堆内存。
+
+## 运行基准测试
+
+### 构建 Benchmark Runner
 
 ```bash
 ./mvnw -Pbenchmark -pl seatunnel-benchmarks -am -DskipTests package
 ```
 
-查看所有可运行场景：
+查看全部 JMH 方法：
 
 ```bash
 java -jar seatunnel-benchmarks/target/benchmarks.jar -l
 ```
 
-运行 `SeaTunnelRow` 微基准并保存 JMH JSON：
+### 运行完整 Pipeline
 
-```bash
-java -jar seatunnel-benchmarks/target/benchmarks.jar SeaTunnelRowBenchmark \
-  -rf json \
-  -rff seatunnel-benchmarks/target/seatunnel-row-result.json
-```
-
-运行两条 Zeta 完整链路：
-
-```bash
-java -jar seatunnel-benchmarks/target/benchmarks.jar SeaTunnelPipelineBenchmark
-```
-
-指定一条链路、一个 payload 大小以及负载参数：
+评估固定负载时，建议先固定一条链路和一种 Payload，并保存标准 JMH JSON。下面的命令用于
+检查 Zeta 能否持续处理每秒计划输入的 250,000 行数据：
 
 ```bash
 java -jar seatunnel-benchmarks/target/benchmarks.jar \
   'SeaTunnelPipelineBenchmark.sourceTransformSink' \
-  -p offeredRatePerSecond=300000 \
+  -p offeredRatePerSecond=250000 \
   -p parallelism=4 \
   -p payloadSize=256 \
   -p transformOperations=64 \
@@ -65,63 +97,138 @@ java -jar seatunnel-benchmarks/target/benchmarks.jar \
   -rff seatunnel-benchmarks/target/zeta-pipeline-result.json
 ```
 
-Pipeline benchmark 默认使用 4 GiB 堆内存、4 个 JVM 可见处理器、G1、12 个 Zeta slot、
-并行度 4、每次 invocation 处理 1,000,000 行，输入速率为 250,000 行/秒。默认 payload
-矩阵为 64、128、256 和 512 个字符。这些资源限制由 benchmark 类传给 fork JVM，
-workflow 不需要重复设置 JVM 参数。
+寻找容量边界时，每次只修改 `offeredRatePerSecond`。先从高于预期容量的速率开始，再逐步
+降低，直到输出完整并且 P99 不再随运行持续增长。例如，可以先设置
+`-p offeredRatePerSecond=1000000`，在高于默认负载的位置比较不同 Payload 的容量。只有在
+测量不控速的吞吐上限时才使用 `0`；该模式没有开环调度，无法暴露输入排队产生的延迟。
 
-功能冒烟时，可以使用 `-f 1 -wi 0 -i 1 -r 1s` 等 JMH 参数缩短运行时间。但这种没有预热、
-只有一个样本的结果不能用于性能结论。
+使用默认 Payload 矩阵运行全部五个 Pipeline 场景：
 
-## 怎么看指标和可视化
+```bash
+java -jar seatunnel-benchmarks/target/benchmarks.jar SeaTunnelPipelineBenchmark
+```
+
+JMH 支持按类名、方法名或正则选择测试。例如运行全部 Trace 相关方法：
+
+```bash
+java -jar seatunnel-benchmarks/target/benchmarks.jar \
+  'SeaTunnelPipelineBenchmark.*Trace'
+```
+
+### 运行 SeaTunnelRow 微基准
+
+```bash
+java -jar seatunnel-benchmarks/target/benchmarks.jar SeaTunnelRowBenchmark \
+  -rf json \
+  -rff seatunnel-benchmarks/target/seatunnel-row-result.json
+```
+
+功能冒烟时可以增加 `-f 1 -wi 0 -i 1 -r 1s` 缩短运行时间。没有预热且只有一个样本的
+结果不能用于性能结论。
+
+### GitHub Actions
+
+`Benchmarks` Workflow 会同时使用 Java 8 和 11。手动运行支持以下输入：
+
+| 输入 | 默认值 | 说明 |
+|---|---|---|
+| `seatunnel_ref` | `dev` | 要测试的分支、Tag 或 Commit。 |
+| `benchmarks` | `.*` | JMH 类名、方法名或正则；`.*` 表示全部。 |
+| `pr_number` | 空 | 在同一 Worker 上将该 PR 与 `seatunnel_ref` 对比。 |
+
+Workflow 会上传原始 JMH JSON、标准化报告、Pipeline JSON，以及 Runner 的 CPU、JDK、
+Kernel 和内存指纹。填写 PR 编号时，执行顺序为 `base -> PR -> PR -> base`，报告使用两组
+样本的中位数进行比较。
+
+## 指标
+
+### 样本有效性
+
+解释性能指标前，先检查：
+
+- `processed_rows` 等于 `expected_rows`；
+- `sourceSink` 的 `checksum` 为 0；
+- 所有 Transform 场景的 `checksum` 非 0。
+
+这些条件用于拒绝输出不完整的运行，并证明 Transform 工作确实到达 Sink。
 
 ### JMH 指标
 
-典型 JMH 结果包含 `Mode`、`Cnt`、`Score`、`Error` 和 `Units`：
+| 字段 | 说明 |
+|---|---|
+| `Score` | Pipeline Benchmark 每秒处理的行数，越大越好；Row 微基准仍使用 `ops/ms`。 |
+| `Error` | 根据本次 JMH 运行内部样本计算的不确定性。 |
+| `Cnt` | 参与聚合的 Measurement 样本数，不是处理行数。 |
+| `Units` | Score 的单位。 |
 
-- `Mode` 表示吞吐、平均耗时或其他 JMH 测量模式。
-- `Cnt` 是参与聚合的 measurement 样本数，不是处理行数。
-- `Score` 是当前 benchmark 与参数组合的估计结果。
-- `Error` 是 JMH 对本次运行内部样本给出的不确定性估计，不包含不同 GitHub-hosted
-  Runner 宿主机之间的性能差异。
-- `Units` 决定 Score 的量纲和方向。吞吐越大越好，每次操作耗时越小越好。
+`SeaTunnelPipelineBenchmark` 声明每个 invocation 包含 1,000,000 个逻辑操作，因此 JMH
+会把一次完整 Job 换算成处理行数，并使用 `ops/s` 输出。JMH 计时包含作业提交、调度和
+完整链路执行；它和只计算 Sink 接收区间的 `throughput_rows_per_second` 不是同一个测量边界。
 
-`SeaTunnelPipelineBenchmark` 声明每个 invocation 包含 1,000,000 个逻辑操作。因此
-`164 ops/ms` 约等于每秒处理 164,000 行。JMH 计时覆盖作业提交、调度和整条链路完成，
-不能直接与只统计 Sink 接收区间的吞吐指标比较。
-
-JMH 结果可以这样可视化：
-
-1. 按上面的命令使用 `-rf json -rff <file>` 生成 JSON。
-2. 打开 [JMH Visualizer](https://jmh.morethan.io/)。
-3. 加载 JSON，按 benchmark 名称与参数查看 Score、Error、fork 和 iteration。
-
-Visualizer 接收标准 JMH JSON。下面的 pipeline summary 是自定义 JSON，需要直接查看，
-或者使用 GitHub Actions 生成的报告产物。
+JMH `Error` 不包含不同 GitHub-hosted Runner 宿主机之间的差异，不能只根据两台 Runner
+上的 JMH 置信区间是否重叠来判断性能回归。
 
 ### Pipeline 指标
 
-每次 pipeline invocation 还会在 `seatunnel-benchmarks/target/pipeline-results` 中写入一份
-JSON 汇总。主要字段如下：
+每次 invocation 会在 `seatunnel-benchmarks/target/pipeline-results` 写入一份 JSON：
 
-| 字段 | 含义 |
-| --- | --- |
-| `processed_rows` / `expected_rows` | 两者相等时本次运行才有效。 |
-| `throughput_rows_per_second` | Sink 从第一条到最后一条记录接收区间内的完成速率。 |
-| `event_time_latency_p50_ms` | Sink 接收时间减去 Source 计划生成时间的中位数。 |
-| `event_time_latency_p95_ms` / `event_time_latency_p99_ms` | 尾延迟；引擎跟不上时包含积压等待。 |
-| `first_half_p99_ms` / `second_half_p99_ms` | 判断尾延迟是否从前半段持续增长到后半段。 |
-| `checksum` | 直连链路为 0；Transform 链路非 0，用于证明 Transform 工作到达 Sink。 |
-| `sustainable` | 配置的保护条件，要求输出完整、P99 受控且延迟增长受控。 |
+| 字段 | 说明 |
+|---|---|
+| `offered_rate_rows_per_second` | Source 计划输入的目标速率；它表示负载，不是实际吞吐。 |
+| `throughput_rows_per_second` | Sink 从接收第一条到最后一条记录期间的实际完成速率。 |
+| `event_time_latency_p50_ms` | 从计划生成到 Sink 接收的中位耗时。 |
+| `event_time_latency_p95_ms` / `event_time_latency_p99_ms` | 尾延迟；引擎跟不上时包含 backlog 等待。 |
+| `event_time_latency_max_ms` | 最大记录延迟，应和百分位一起分析。 |
+| `first_half_p99_ms` / `second_half_p99_ms` | 前半段和后半段 P99，用于判断 backlog 是否持续增长。 |
+| `latency_growth_ratio` | `(后半段 P99 + 1) / (前半段 P99 + 1)`；大于 1 表示延迟在恶化。 |
+| `latency_overflow_rows` | 延迟超过 Histogram 统计范围的记录数。 |
+| `sustainable` | 默认要求输出完整、P99 不超过 1,000 ms、增长比例不超过 1.20。 |
 
-JMH Score 回答整次作业 invocation 完成得多快；pipeline throughput 回答数据开始到达后 Sink
-接收得多快；event-time latency 回答记录从计划生成到 Sink 接收等待了多久。解释结果时必须
-区分这些测量边界。
+`sustainable` 是便捷保护条件，不是通用 SLA。最终是否满足要求，应由目标业务的吞吐和延迟
+目标决定。
 
-估算可持续吞吐时，应在同一台空闲机器上按固定输入速率重复测试。先从明显高于预期容量的
-速率开始，再逐步降低，直到 P99 和 backlog 不再随运行持续增长。应比较全部独立样本，不能
-只选择最好的一次。GitHub-hosted Runner 适合功能冒烟和粗粒度趋势，但宿主 CPU 会变化，
-不应根据单次运行建立精细的性能回归门禁。
+## 判断测试结果
+
+建议先判断负载是否稳定，再定位是哪一部分造成差异。
+
+| 观察结果 | 结论 | 下一步 |
+|---|---|---|
+| 输出完整，实际吞吐接近输入速率，前后半段 P99 相近 | 当前负载处于稳态 | 提高输入速率，继续寻找容量边界。 |
+| 实际吞吐低于输入速率，后半段 P99 持续升高 | 正在积累 backlog，超过当前配置的可持续容量 | 降低输入速率，或增加资源与并行度后重测。 |
+| `sourceSink` 稳定，`sourceTransformSink` 明显变慢 | Transform 工作是主要增量 | 调整 `transformOperations`，检查 Row copy 和 Transform 热点。 |
+| 基础 Transform 稳定，背压或 Trace 场景明显变慢 | 对应功能产生可见开销 | 使用相同参数重复运行，比较单独开启与同时开启的结果。 |
+| 同一 Commit 的全部 Benchmark 在某次 GitHub 运行中同时大幅变化 | Runner 宿主机性能可能不同 | 将本次标记为不确定，检查 CPU 指纹，不更新精细性能基线。 |
+
+容量评估应使用多个固定速率进行扫描，每个速率都在同一台空闲机器上通过独立 JVM 重复运行，
+并保留全部样本。比较两个场景或两个 Commit 时，JDK、机器、Payload、并行度、输入速率和
+Transform 工作量必须相同。
+
+## 可视化
+
+使用 `-rf json -rff <file>` 生成 JMH JSON，打开
+[JMH Visualizer](https://jmh.morethan.io/)，按方法名和参数比较 Score、Error、fork 和
+iteration。
+
+JMH Visualizer 会把参数值拼成标签。例如 `250000:4:256:64` 依次表示
+`offeredRatePerSecond=250000`、`parallelism=4`、`payloadSize=256` 和
+`transformOperations=64`，顺序与图例一致。默认 250,000 行/秒负载下的 Score 很接近，
+说明不同 Payload 都跟上了同一个限速输入，并不代表它们的最大吞吐相同。比较容量时，需要
+提高 offered rate，并结合 Pipeline JSON 的延迟和完整性字段判断。
+
+`pipeline-results` 下的 JSON 不是 JMH 格式，应直接查看，或者使用 GitHub Actions 生成的
+Markdown 和标准化 JSON 报告。
+
+## 开销与限制
+
+- Pipeline Benchmark 会在本机启动嵌入式 Zeta 集群，需要至少 4 GiB 可用堆内存。
+- 完整测试包含 3 个 fork、3 次预热和 5 次测量；运行全部场景和 Payload 会花费较长时间。
+- `ActiveProcessorCount=4` 只限制 JVM 可见处理器数量，不提供操作系统级 CPU 绑核。
+- GitHub-hosted Runner 适合功能验证、历史采集和发现数量级回归，但底层 CPU 会变化。
+- 精细性能对比应使用固定 self-hosted 机器，或在同一 Worker 上交替运行 Base 与 Candidate。
+- 本测试不包含真实 Connector、外部消息队列、网络、磁盘和多节点通信成本。
+
+决定引入 Zeta 前，应使用生产 Connector 和外部系统重复最终测试，并结合错误日志、Checkpoint
+状态和外部系统监控判断结果。
 
 ## 参考资料
 
@@ -135,5 +242,8 @@ JMH Score 回答整次作业 invocation 完成得多快；pipeline throughput �
    [Benchmarking Distributed Stream Data Processing Systems](https://arxiv.org/pdf/1802.08496)，
    ICDE 2018。
 
-关于这些论文如何应用到 JMH 与流处理基准测试，可继续阅读：
-[从 Java 微基准到流处理系统：三篇性能评估论文精读与 JMH 实战](https://nzw921rx.github.io/nzw921rx-blog/posts/rigorous-java-stream-benchmarking/)。
+## 相关文档
+
+- [忙碌度与背压](./busyness-and-backpressure.md)
+- [监控与指标](./telemetry.md)
+- [调优指南](./tuning-guide.md)

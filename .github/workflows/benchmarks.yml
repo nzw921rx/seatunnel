@@ -28,16 +28,11 @@ on:
         required: false
         type: string
         default: 'dev'
-      benchmark_suite:
-        description: 'Benchmark scenario to run.'
-        required: true
-        type: choice
-        options:
-          - all
-          - seatunnel-row
-          - zeta-source-sink
-          - zeta-source-transform-sink
-        default: 'all'
+      benchmarks:
+        description: 'JMH benchmark class, method, or regex. Leave empty to run all.'
+        required: false
+        type: string
+        default: '.*'
       pr_number:
         description: 'Optional PR number to compare against the selected SeaTunnel ref.'
         required: false
@@ -62,7 +57,7 @@ jobs:
         java-version: [ '8', '11' ]
 
     env:
-      BENCHMARK_SUITE: ${{ github.event.inputs.benchmark_suite || 'all' }}
+      BENCHMARKS: ${{ github.event.inputs.benchmarks || '.*' }}
       JAVA_VERSION: ${{ matrix.java-version }}
       PR_NUMBER: ${{ github.event.inputs.pr_number || '' }}
       SEATUNNEL_REF: ${{ github.event.inputs.seatunnel_ref || 'dev' }}

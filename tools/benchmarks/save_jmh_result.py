@@ -87,6 +87,7 @@ def jmh_metrics(results):
         metrics.append(
             {
                 "name": benchmark_name(result),
+                "benchmark": result["benchmark"],
                 "kind": "jmh",
                 "value": score,
                 "score_error": error,
@@ -106,15 +107,15 @@ def jmh_metrics(results):
 
 
 def pipeline_name(run_id):
-    if run_id.startswith("source-transform-sink-"):
-        return "source-transform-sink"
-    if run_id.startswith("source-sink-"):
-        return "source-sink"
-    raise ValueError("Unknown pipeline run id: {}".format(run_id))
+    parts = run_id.rsplit("-", 2)
+    if len(parts) != 3 or not parts[0] or not parts[1].isdigit() or not parts[2].isdigit():
+        raise ValueError("Invalid pipeline run id: {}".format(run_id))
+    return parts[0]
 
 
 def pipeline_params(sample):
     field_names = (
+        ("offered_rate_rows_per_second", "offeredRatePerSecond"),
         ("parallelism", "parallelism"),
         ("payload_size", "payloadSize"),
         ("transform_operations", "transformOperations"),
@@ -150,6 +151,8 @@ def pipeline_metrics(pipeline_dir):
         metric_prefix = pipeline_metric_prefix(name, params)
         complete = [sample["processed_rows"] == sample["expected_rows"] for sample in samples]
         correctness[metric_prefix] = {
+            "pipeline": name,
+            "params": params,
             "sample_count": len(samples),
             "complete_samples": sum(complete),
             "sustainable_samples": sum(bool(sample["sustainable"]) for sample in samples),
@@ -160,6 +163,8 @@ def pipeline_metrics(pipeline_dir):
             metrics.append(
                 {
                     "name": "{}.{}".format(metric_prefix, field),
+                    "pipeline": name,
+                    "metric": field,
                     "kind": "pipeline",
                     "value": statistics.median(values),
                     "score_error": None,

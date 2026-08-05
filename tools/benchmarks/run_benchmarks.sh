@@ -21,7 +21,7 @@ set -euo pipefail
 : "${GITHUB_WORKSPACE:?GITHUB_WORKSPACE is required}"
 : "${JAVA_VERSION:?JAVA_VERSION is required}"
 
-benchmark_suite="${BENCHMARK_SUITE:-all}"
+benchmark_regex="${BENCHMARKS:-.*}"
 benchmark_pr_number="${PR_NUMBER:-}"
 benchmark_ref="${SEATUNNEL_REF:-dev}"
 benchmark_run_id="${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}"
@@ -30,38 +30,18 @@ benchmark_runner_os="${RUNNER_OS:-unknown}"
 benchmark_runner_arch="${RUNNER_ARCH:-unknown}"
 benchmark_runner_image="${ImageOS:-unknown}-${ImageVersion:-unknown}"
 
-case "${benchmark_suite}" in
-    all)
-        benchmark_regex='.*'
-        ;;
-    seatunnel-row)
-        benchmark_regex='SeaTunnelRowBenchmark'
-        ;;
-    zeta-source-sink)
-        benchmark_regex='SeaTunnelPipelineBenchmark.sourceSink'
-        ;;
-    zeta-source-transform-sink)
-        benchmark_regex='SeaTunnelPipelineBenchmark.sourceTransformSink'
-        ;;
-    *)
-        echo "Unknown benchmark suite: ${benchmark_suite}" >&2
-        exit 1
-        ;;
-esac
-
 benchmark_artifact_dir="${GITHUB_WORKSPACE}/benchmark-artifacts/java${JAVA_VERSION}"
 mkdir -p "${benchmark_artifact_dir}"
 
 echo "SeaTunnel ref: ${benchmark_ref}"
 echo "Baseline commit: $(git -C baseline rev-parse HEAD)"
-echo "Benchmark suite: ${benchmark_suite} (${benchmark_regex})"
+echo "Benchmarks: ${benchmark_regex}"
 if [[ -n "${benchmark_pr_number}" ]]; then
     echo "PR number: ${benchmark_pr_number}"
     echo "Candidate commit: $(git -C candidate rev-parse HEAD)"
 fi
 
 {
-    echo "benchmark_suite=${benchmark_suite}"
     echo "benchmark_regex=${benchmark_regex}"
     echo "runner_name=${benchmark_runner_name}"
     echo "runner_os=${benchmark_runner_os}"
@@ -117,7 +97,7 @@ run_benchmark() {
         --cpu-count "$(nproc)" \
         --memory-kib "${benchmark_memory_kib}" \
         --run-id "${benchmark_run_id}-${label}" \
-        --suite "${benchmark_suite}"
+        --suite "${benchmark_regex}"
 }
 
 if [[ -z "${benchmark_pr_number}" ]]; then

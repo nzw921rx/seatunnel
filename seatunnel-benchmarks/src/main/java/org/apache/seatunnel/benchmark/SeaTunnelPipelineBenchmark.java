@@ -20,6 +20,7 @@ package org.apache.seatunnel.benchmark;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.Fork;
 import org.openjdk.jmh.annotations.OperationsPerInvocation;
+import org.openjdk.jmh.annotations.OutputTimeUnit;
 import org.openjdk.jmh.annotations.Param;
 import org.openjdk.jmh.runner.Runner;
 import org.openjdk.jmh.runner.RunnerException;
@@ -27,8 +28,11 @@ import org.openjdk.jmh.runner.options.Options;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
 import org.openjdk.jmh.runner.options.VerboseMode;
 
+import java.util.concurrent.TimeUnit;
+
 /** Measures complete bounded pipelines on an embedded single-node Zeta cluster. */
 @OperationsPerInvocation(SeaTunnelPipelineBenchmark.RECORDS_PER_INVOCATION)
+@OutputTimeUnit(TimeUnit.SECONDS)
 @Fork(
         value = 3,
         jvmArgsAppend = {
@@ -74,6 +78,26 @@ public class SeaTunnelPipelineBenchmark extends BenchmarkBase {
     public BenchmarkRunResult sourceTransformSink(SeaTunnelEnvironmentContext context)
             throws Exception {
         return context.execute(BenchmarkPipeline.SOURCE_TRANSFORM_SINK, benchmarkOptions());
+    }
+
+    @Benchmark
+    public BenchmarkRunResult sourceTransformSinkWithBackpressure(
+            SeaTunnelBackpressureEnvironmentContext context) throws Exception {
+        return context.execute(
+                BenchmarkPipeline.SOURCE_TRANSFORM_SINK_BACKPRESSURE, benchmarkOptions());
+    }
+
+    @Benchmark
+    public BenchmarkRunResult sourceTransformSinkWithTrace(SeaTunnelTraceEnvironmentContext context)
+            throws Exception {
+        return context.execute(BenchmarkPipeline.SOURCE_TRANSFORM_SINK_TRACE, benchmarkOptions());
+    }
+
+    @Benchmark
+    public BenchmarkRunResult sourceTransformSinkWithBackpressureAndTrace(
+            SeaTunnelBackpressureTraceEnvironmentContext context) throws Exception {
+        return context.execute(
+                BenchmarkPipeline.SOURCE_TRANSFORM_SINK_BACKPRESSURE_TRACE, benchmarkOptions());
     }
 
     private PipelineBenchmarkOptions benchmarkOptions() {
