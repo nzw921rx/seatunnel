@@ -88,7 +88,7 @@ java -jar seatunnel-benchmarks/target/benchmarks.jar -l
 
 ```bash
 java -jar seatunnel-benchmarks/target/benchmarks.jar \
-  'SeaTunnelPipelineBenchmark.sourceTransformSink' \
+  'sourceTransformSink$' \
   -p offeredRatePerSecond=250000 \
   -p parallelism=4 \
   -p payloadSize=256 \
@@ -115,6 +115,9 @@ java -jar seatunnel-benchmarks/target/benchmarks.jar \
   'SeaTunnelPipelineBenchmark.*Trace'
 ```
 
+JMH 的选择器本质上是正则表达式。只运行一个方法时应在末尾加 `$`；否则
+`sourceTransformSink` 还会匹配所有以该文本开头的方法。
+
 ### 运行 SeaTunnelRow 微基准
 
 ```bash
@@ -133,7 +136,8 @@ java -jar seatunnel-benchmarks/target/benchmarks.jar SeaTunnelRowBenchmark \
 | 输入 | 默认值 | 说明 |
 |---|---|---|
 | `seatunnel_ref` | `dev` | 要测试的分支、Tag 或 Commit。 |
-| `benchmarks` | `.*` | JMH 类名、方法名或正则；`.*` 表示全部。 |
+| `benchmarks` | `.*` | 从下拉框选择常用 JMH 场景；`.*` 表示全部。 |
+| `custom_benchmarks` | 空 | 可选的类名、方法名或正则；填写后覆盖下拉框。 |
 | `pr_number` | 空 | 在同一 Worker 上将该 PR 与 `seatunnel_ref` 对比。 |
 
 Workflow 会上传原始 JMH JSON、标准化报告、Pipeline JSON，以及 Runner 的 CPU、JDK、

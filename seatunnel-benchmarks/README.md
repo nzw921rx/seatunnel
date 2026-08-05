@@ -64,12 +64,16 @@ version allows a later Codespeed service or regression checker to consume saved 
 parsing console logs. The workflow also saves the CPU, kernel, runner image, memory, and JDK
 fingerprint. It does not push benchmark data to a repository branch.
 
-Manual runs accept any JMH class name, method name, or regular expression through the `benchmarks`
-input; `.*` runs every current and future benchmark without maintaining a workflow-side scenario
-list. An optional PR number compares that PR with `seatunnel_ref` on the same worker in
-`base -> PR -> PR -> base` order. The comparison report uses the median of the two baseline and two
-candidate runs and shows a direction-adjusted percentage; positive means the candidate moved in the
-favorable direction.
+Manual runs provide a `benchmarks` dropdown for common JMH selectors. The optional
+`custom_benchmarks` input accepts any class name, method name, or regular expression and overrides
+the dropdown, so a new benchmark can run before it is added to the common choices. `.*` runs every
+current and future benchmark. An optional PR number compares that PR with `seatunnel_ref` on the
+same worker in `base -> PR -> PR -> base` order. The comparison report uses the median of the two
+baseline and two candidate runs and shows a direction-adjusted percentage; positive means the
+candidate moved in the favorable direction.
+
+JMH treats selectors as regular expressions. Append `$` to an exact method selector when other
+method names share the same prefix.
 
 GitHub-hosted runners can execute the workflow reliably while still having materially different
 host CPU performance. Treat these artifacts as trend and smoke-test data, not as a regression gate
