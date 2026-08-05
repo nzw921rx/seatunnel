@@ -15,25 +15,30 @@
  * limitations under the License.
  */
 
-package org.apache.seatunnel.benchmark;
+package org.apache.seatunnel.benchmark.connector.source;
 
-import org.openjdk.jmh.annotations.BenchmarkMode;
-import org.openjdk.jmh.annotations.Fork;
-import org.openjdk.jmh.annotations.Measurement;
-import org.openjdk.jmh.annotations.Mode;
-import org.openjdk.jmh.annotations.OutputTimeUnit;
-import org.openjdk.jmh.annotations.Scope;
-import org.openjdk.jmh.annotations.State;
-import org.openjdk.jmh.annotations.Warmup;
+import java.io.Serializable;
+import java.util.HashSet;
+import java.util.Set;
 
-import java.util.concurrent.TimeUnit;
+/** Checkpoint state for the benchmark split enumerator. */
+public final class BenchmarkSourceState implements Serializable {
 
-/** Shared JMH defaults for SeaTunnel benchmarks. */
-@SuppressWarnings("MethodMayBeStatic")
-@State(Scope.Thread)
-@OutputTimeUnit(TimeUnit.MILLISECONDS)
-@BenchmarkMode(Mode.Throughput)
-@Fork(3)
-@Warmup(iterations = 10)
-@Measurement(iterations = 10)
-public abstract class AbstractBenchmark {}
+    private static final long serialVersionUID = 1L;
+
+    private final long startEpochMillis;
+    private final Set<Integer> assignedSubtasks;
+
+    public BenchmarkSourceState(long startEpochMillis, Set<Integer> assignedSubtasks) {
+        this.startEpochMillis = startEpochMillis;
+        this.assignedSubtasks = new HashSet<>(assignedSubtasks);
+    }
+
+    public long getStartEpochMillis() {
+        return startEpochMillis;
+    }
+
+    public Set<Integer> getAssignedSubtasks() {
+        return new HashSet<>(assignedSubtasks);
+    }
+}
