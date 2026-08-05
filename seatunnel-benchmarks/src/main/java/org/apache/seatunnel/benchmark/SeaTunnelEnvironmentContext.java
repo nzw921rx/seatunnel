@@ -70,6 +70,7 @@ public class SeaTunnelEnvironmentContext {
     private static final int SLOT_COUNT = 12;
     private static final long SOURCE_START_DELAY_MILLIS = 250L;
     private static final int SOURCE_EMIT_BATCH_SIZE = 1_024;
+    protected static final String BENCHMARK_TRANSFORM_NAME = "benchmark_transform";
 
     private final AtomicLong invocationSequence = new AtomicLong();
 
@@ -262,6 +263,7 @@ public class SeaTunnelEnvironmentContext {
                                 Locale.ROOT,
                                 "transform {\n"
                                         + "  BenchmarkTransform {\n"
+                                        + "    name = \"%s\"\n"
                                         + "    plugin_input = \"benchmark_rows\"\n"
                                         + "    plugin_output = \"transformed_rows\"\n"
                                         + "    parallelism = %d\n"
@@ -269,6 +271,7 @@ public class SeaTunnelEnvironmentContext {
                                         + "    copy_row = true\n"
                                         + "  }\n"
                                         + "}\n\n",
+                                BENCHMARK_TRANSFORM_NAME,
                                 options.getParallelism(),
                                 options.getTransformOperations())
                         : "";
@@ -280,6 +283,7 @@ public class SeaTunnelEnvironmentContext {
                         + "  job.name = \"%s\"\n"
                         + "  job.mode = \"BATCH\"\n"
                         + "  parallelism = %d\n"
+                        + "%s"
                         + "}\n\n"
                         + "source {\n"
                         + "  BenchmarkSource {\n"
@@ -307,6 +311,7 @@ public class SeaTunnelEnvironmentContext {
                         + "}\n",
                 runId,
                 options.getParallelism(),
+                environmentConfiguration(),
                 options.getParallelism(),
                 options.getTotalRows(),
                 options.getOfferedRatePerSecond(),
@@ -322,6 +327,11 @@ public class SeaTunnelEnvironmentContext {
                 options.getOfferedRatePerSecond(),
                 options.getPayloadSize(),
                 options.getTransformOperations());
+    }
+
+    /** Adds optional engine or job features to the generated {@code env} block. */
+    protected String environmentConfiguration() {
+        return "";
     }
 
     private static void validateResult(
@@ -380,6 +390,13 @@ public class SeaTunnelEnvironmentContext {
                 + "    http:\n"
                 + "      enable-http: false\n"
                 + "      enable-https: false\n";
+    }
+
+    protected final Path getMiniClusterHome() {
+        if (miniClusterHome == null) {
+            throw new IllegalStateException("SeaTunnel mini cluster home has not been created");
+        }
+        return miniClusterHome;
     }
 
     private static void restoreSystemProperty(String key, String value) {

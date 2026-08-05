@@ -21,39 +21,140 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.util.EnumMap;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SeaTunnelEnvironmentContextTest {
 
     @TempDir Path resultDirectory;
 
     @Test
-    void shouldExecuteBothPipelinesOnEmbeddedZeta() throws Exception {
+    void shouldExecuteAllPipelinesOnEmbeddedZeta() throws Exception {
         String property = SeaTunnelEnvironmentContext.RESULT_DIRECTORY_PROPERTY;
         String previousResultDirectory = System.getProperty(property);
         System.setProperty(property, resultDirectory.toString());
-        SeaTunnelEnvironmentContext context = new SeaTunnelEnvironmentContext();
         try {
-            context.setUp();
-            PipelineBenchmarkOptions options = new PipelineBenchmarkOptions(2_000L, 0L, 1, 32, 4);
-
-            BenchmarkRunResult direct = context.execute(BenchmarkPipeline.SOURCE_SINK, options);
-            BenchmarkRunResult transformed =
-                    context.execute(BenchmarkPipeline.SOURCE_TRANSFORM_SINK, options);
-
-            assertEquals(2_000L, direct.getProcessedRows());
-            assertEquals(0L, direct.getChecksum());
-            assertEquals(2_000L, transformed.getProcessedRows());
-            assertNotEquals(0L, transformed.getChecksum());
+            executeDefaultEnvironmentPipelines();
+            executeBackpressureEnvironmentPipeline();
+            executeTraceEnvironmentPipeline();
+            executeBackpressureTraceEnvironmentPipeline();
         } finally {
-            context.tearDown();
             if (previousResultDirectory == null) {
                 System.clearProperty(property);
             } else {
                 System.setProperty(property, previousResultDirectory);
             }
         }
+    }
+
+    private static void executeDefaultEnvironmentPipelines() throws Exception {
+        SeaTunnelEnvironmentContext context = new SeaTunnelEnvironmentContext();
+        try {
+            context.setUp();
+            PipelineBenchmarkOptions options = new PipelineBenchmarkOptions(2_000L, 0L, 1, 32, 4);
+
+            Map<BenchmarkPipeline, BenchmarkRunResult> results =
+                    new EnumMap<>(BenchmarkPipeline.class);
+            for (BenchmarkPipeline pipeline :
+                    new BenchmarkPipeline[] {
+                        BenchmarkPipeline.SOURCE_SINK, BenchmarkPipeline.SOURCE_TRANSFORM_SINK
+                    }) {
+                results.put(pipeline, context.execute(pipeline, options));
+            }
+
+            BenchmarkRunResult direct = results.get(BenchmarkPipeline.SOURCE_SINK);
+            assertEquals(2_000L, direct.getProcessedRows());
+            assertEquals(0L, direct.getChecksum());
+            assertCompleteTransformResult(results.get(BenchmarkPipeline.SOURCE_TRANSFORM_SINK));
+
+            String baselineConfig =
+                    context.createJobConfig(
+                            BenchmarkPipeline.SOURCE_TRANSFORM_SINK, options, "baseline");
+            assertFalse(baselineConfig.contains("observability"));
+            assertFalse(baselineConfig.contains("stain_trace"));
+        } finally {
+            context.tearDown();
+        }
+    }
+
+    private static void executeBackpressureEnvironmentPipeline() throws Exception {
+        SeaTunnelBackpressureEnvironmentContext context =
+                new SeaTunnelBackpressureEnvironmentContext();
+        try {
+            context.setUp();
+            PipelineBenchmarkOptions options = new PipelineBenchmarkOptions(2_000L, 0L, 1, 32, 4);
+
+            assertCompleteTransformResult(
+                    context.execute(BenchmarkPipeline.SOURCE_TRANSFORM_SINK_BACKPRESSURE, options));
+
+            String backpressureConfig =
+                    context.createJobConfig(
+                            BenchmarkPipeline.SOURCE_TRANSFORM_SINK_BACKPRESSURE,
+                            options,
+                            "backpressure");
+            assertTrue(backpressureConfig.contains("observability"));
+            assertTrue(backpressureConfig.contains("async_boundaries = [\"benchmark_transform\"]"));
+            assertFalse(backpressureConfig.contains("stain_trace"));
+        } finally {
+            context.tearDown();
+        }
+    }
+
+    private static void executeTraceEnvironmentPipeline() throws Exception {
+        SeaTunnelTraceEnvironmentContext traceContext = new SeaTunnelTraceEnvironmentContext();
+        try {
+            traceContext.setUp();
+            PipelineBenchmarkOptions options = new PipelineBenchmarkOptions(2_000L, 0L, 1, 32, 4);
+
+            assertCompleteTransformResult(
+                    traceContext.execute(BenchmarkPipeline.SOURCE_TRANSFORM_SINK_TRACE, options));
+
+            assertTrue(
+                    traceContext
+                            .createSeaTunnelConfig("trace-test")
+                            .getEngineConfig()
+                            .isStainTraceEnabled());
+            String traceConfig =
+                    traceContext.createJobConfig(
+                            BenchmarkPipeline.SOURCE_TRANSFORM_SINK_TRACE, options, "trace");
+            assertFalse(traceConfig.contains("observability"));
+            assertTrue(traceConfig.contains("stain_trace"));
+            assertTrue(traceConfig.contains("sample_interval = 100000"));
+        } finally {
+            traceContext.tearDown();
+        }
+    }
+
+    private static void executeBackpressureTraceEnvironmentPipeline() throws Exception {
+        SeaTunnelBackpressureTraceEnvironmentContext context =
+                new SeaTunnelBackpressureTraceEnvironmentContext();
+        try {
+            context.setUp();
+            PipelineBenchmarkOptions options = new PipelineBenchmarkOptions(2_000L, 0L, 1, 32, 4);
+
+            assertCompleteTransformResult(
+                    context.execute(
+                            BenchmarkPipeline.SOURCE_TRANSFORM_SINK_BACKPRESSURE_TRACE, options));
+
+            String allEnabledConfig =
+                    context.createJobConfig(
+                            BenchmarkPipeline.SOURCE_TRANSFORM_SINK_BACKPRESSURE_TRACE,
+                            options,
+                            "all-enabled");
+            assertTrue(allEnabledConfig.contains("observability"));
+            assertTrue(allEnabledConfig.contains("stain_trace"));
+        } finally {
+            context.tearDown();
+        }
+    }
+
+    private static void assertCompleteTransformResult(BenchmarkRunResult result) {
+        assertEquals(2_000L, result.getProcessedRows());
+        assertNotEquals(0L, result.getChecksum());
     }
 }

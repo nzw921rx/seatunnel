@@ -17,27 +17,16 @@
 
 package org.apache.seatunnel.benchmark;
 
-/** Full-pipeline scenarios supported by the embedded Zeta benchmark contexts. */
-public enum BenchmarkPipeline {
-    SOURCE_SINK("source-sink", false),
-    SOURCE_TRANSFORM_SINK("source-transform-sink", true),
-    SOURCE_TRANSFORM_SINK_BACKPRESSURE("source-transform-sink-backpressure", true),
-    SOURCE_TRANSFORM_SINK_TRACE("source-transform-sink-trace", true),
-    SOURCE_TRANSFORM_SINK_BACKPRESSURE_TRACE("source-transform-sink-backpressure-trace", true);
+import org.openjdk.jmh.annotations.Scope;
+import org.openjdk.jmh.annotations.State;
 
-    private final String id;
-    private final boolean transformEnabled;
+/** Embedded Zeta environment with both backpressure observability and StainTrace enabled. */
+@State(Scope.Thread)
+public class SeaTunnelBackpressureTraceEnvironmentContext extends SeaTunnelTraceEnvironmentContext {
 
-    BenchmarkPipeline(String id, boolean transformEnabled) {
-        this.id = id;
-        this.transformEnabled = transformEnabled;
-    }
-
-    public String getId() {
-        return id;
-    }
-
-    public boolean isTransformEnabled() {
-        return transformEnabled;
+    @Override
+    protected String environmentConfiguration() {
+        return SeaTunnelBackpressureEnvironmentContext.backpressureEnvironmentConfiguration()
+                + super.environmentConfiguration();
     }
 }
