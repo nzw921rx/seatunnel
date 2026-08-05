@@ -29,6 +29,11 @@ import org.apache.seatunnel.api.table.type.SeaTunnelRowType;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.Param;
 import org.openjdk.jmh.annotations.Setup;
+import org.openjdk.jmh.runner.Runner;
+import org.openjdk.jmh.runner.RunnerException;
+import org.openjdk.jmh.runner.options.Options;
+import org.openjdk.jmh.runner.options.OptionsBuilder;
+import org.openjdk.jmh.runner.options.VerboseMode;
 
 import java.math.BigDecimal;
 import java.util.HashMap;
@@ -37,7 +42,7 @@ import java.util.Map;
 /**
  * Benchmarks core {@link SeaTunnelRow} operations used in source, transform, and sink hot paths.
  */
-public class SeaTunnelRowBenchmark extends AbstractBenchmark {
+public class SeaTunnelRowBenchmark extends BenchmarkBase {
 
     private static final String TRACE_PAYLOAD_OPTION_KEY = "__st_trace_payload";
     private static final int[] PROJECTION = new int[] {0, 1, 3, 5};
@@ -66,6 +71,15 @@ public class SeaTunnelRowBenchmark extends AbstractBenchmark {
     private SeaTunnelRow[] traceRows;
     private SeaTunnelRow[] cachedSizeRows;
     private int cursor;
+
+    public static void main(String[] args) throws RunnerException {
+        Options options =
+                new OptionsBuilder()
+                        .verbosity(VerboseMode.NORMAL)
+                        .include(".*" + SeaTunnelRowBenchmark.class.getCanonicalName() + ".*")
+                        .build();
+        new Runner(options).run();
+    }
 
     @Setup
     public void setUp() {

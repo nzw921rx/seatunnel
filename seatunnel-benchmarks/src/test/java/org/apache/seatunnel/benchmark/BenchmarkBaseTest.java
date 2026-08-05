@@ -34,13 +34,13 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class AbstractBenchmarkTest {
+class BenchmarkBaseTest {
 
     @Test
     void shouldInheritDefaultJmhSettings() {
         Class<TestBenchmark> benchmarkClass = TestBenchmark.class;
 
-        assertTrue(Modifier.isAbstract(AbstractBenchmark.class.getModifiers()));
+        assertTrue(Modifier.isAbstract(BenchmarkBase.class.getModifiers()));
         assertEquals(Scope.Thread, benchmarkClass.getAnnotation(State.class).value());
         assertEquals(
                 TimeUnit.MILLISECONDS, benchmarkClass.getAnnotation(OutputTimeUnit.class).value());
@@ -48,9 +48,21 @@ class AbstractBenchmarkTest {
                 new Mode[] {Mode.Throughput},
                 benchmarkClass.getAnnotation(BenchmarkMode.class).value());
         assertEquals(3, benchmarkClass.getAnnotation(Fork.class).value());
-        assertEquals(10, benchmarkClass.getAnnotation(Warmup.class).iterations());
-        assertEquals(10, benchmarkClass.getAnnotation(Measurement.class).iterations());
+        assertEquals(3, benchmarkClass.getAnnotation(Warmup.class).iterations());
+        assertEquals(5, benchmarkClass.getAnnotation(Measurement.class).iterations());
+
+        assertArrayEquals(
+                new String[] {
+                    "-Xms4g",
+                    "-Xmx4g",
+                    "-XX:+UseG1GC",
+                    "-XX:+AlwaysPreTouch",
+                    "-XX:+DisableExplicitGC",
+                    "-XX:ActiveProcessorCount=4",
+                    "-Djava.net.preferIPv4Stack=true"
+                },
+                SeaTunnelPipelineBenchmark.class.getAnnotation(Fork.class).jvmArgsAppend());
     }
 
-    private static final class TestBenchmark extends AbstractBenchmark {}
+    private static final class TestBenchmark extends BenchmarkBase {}
 }

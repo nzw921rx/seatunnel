@@ -19,8 +19,8 @@ name: Benchmarks
 
 on:
   schedule:
-    # Runs at 00:00 UTC every day.
-    - cron: '0 0 * * *'
+    # Avoid the high-load top of the hour for scheduled workflows.
+    - cron: '17 0 * * *'
   workflow_dispatch:
     inputs:
       seatunnel_ref:
@@ -28,24 +28,33 @@ on:
         required: false
         type: string
         default: 'dev'
-      benchmarks:
-        description: 'JMH benchmark regex or class name. Leave empty to run all benchmarks.'
+      benchmark_suite:
+        description: 'Benchmark scenario to run.'
+        required: true
+        type: choice
+        options:
+          - all
+          - seatunnel-row
+          - zeta-source-sink
+          - zeta-source-transform-sink
+        default: 'all'
+      pr_number:
+        description: 'Optional PR number to compare against the selected SeaTunnel ref.'
         required: false
         type: string
-        default: '.*'
 
 permissions:
   contents: read
 
 concurrency:
-  group: benchmarks-${{ github.event.inputs.seatunnel_ref || 'dev' }}
+  group: benchmarks-${{ github.event.inputs.seatunnel_ref || 'dev' }}-${{ github.event.inputs.pr_number || 'no-pr' }}
   cancel-in-progress: false
 
 jobs:
   benchmark:
     name: Run benchmarks with Java ${{ matrix.java-version }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
 
     strategy:
       fail-fast: false
@@ -53,14 +62,25 @@ jobs:
         java-version: [ '8', '11' ]
 
     env:
-      BENCHMARKS: ${{ github.event.inputs.benchmarks || '.*' }}
+      BENCHMARK_SUITE: ${{ github.event.inputs.benchmark_suite || 'all' }}
+      JAVA_VERSION: ${{ matrix.java-version }}
+      PR_NUMBER: ${{ github.event.inputs.pr_number || '' }}
       SEATUNNEL_REF: ${{ github.event.inputs.seatunnel_ref || 'dev' }}
     steps:
-      - name: Checkout SeaTunnel
+      - name: Checkout baseline
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: ${{ github.event.inputs.seatunnel_ref || 'dev' }}
+          path: baseline
+
+      - name: Checkout PR
+        if: env.PR_NUMBER != ''
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: refs/pull/${{ github.event.inputs.pr_number }}/head
+          path: candidate
 
       - name: Set up JDK ${{ matrix.java-version }}
         uses: actions/setup-java@v4
@@ -69,32 +89,23 @@ jobs:
           java-version: ${{ matrix.java-version }}
           cache: maven
 
-      - name: Show benchmark context
-        run: |
-          echo "SeaTunnel ref: ${SEATUNNEL_REF}"
-          echo "Resolved commit: $(git rev-parse HEAD)"
-          echo "Benchmarks: ${BENCHMARKS}"
-          echo "Java version:"
-          java -version
-
-      - name: Build benchmark module
+      - name: Build baseline benchmark module
+        working-directory: baseline
         run: ./mvnw -Pbenchmark -pl seatunnel-benchmarks -am -DskipTests package
 
-      - name: Run benchmark
-        run: |
-          safe_ref=$(printf '%s' "${SEATUNNEL_REF}" | tr '/:@ ' '----' | tr -cd 'A-Za-z0-9._-')
-          result_dir="seatunnel-benchmarks/target/benchmark-results"
-          mkdir -p "${result_dir}"
+      - name: Build PR benchmark module
+        if: env.PR_NUMBER != ''
+        working-directory: candidate
+        run: ./mvnw -Pbenchmark -pl seatunnel-benchmarks -am -DskipTests package
 
-          java -jar seatunnel-benchmarks/target/benchmarks.jar "${BENCHMARKS}" \
-            -f 1 \
-            -wi 3 \
-            -i 5 \
-            -rf json \
-            -rff "${result_dir}/seatunnel-benchmarks-${safe_ref}-java${{ matrix.java-version }}.json"
+      - name: Run benchmarks and build report
+        run: bash baseline/tools/benchmarks/run_benchmarks.sh
 
       - name: Upload benchmark result
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: seatunnel-benchmarks-java${{ matrix.java-version }}-${{ github.run_id }}
-          path: seatunnel-benchmarks/target/benchmark-results/**
+          retention-days: 90
+          if-no-files-found: warn
+          path: benchmark-artifacts/**
