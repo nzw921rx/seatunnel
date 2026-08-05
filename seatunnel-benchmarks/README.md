@@ -64,11 +64,12 @@ version allows a later Codespeed service or regression checker to consume saved 
 parsing console logs. The workflow also saves the CPU, kernel, runner image, memory, and JDK
 fingerprint. It does not push benchmark data to a repository branch.
 
-Manual runs provide a scenario selector for all benchmarks, `SeaTunnelRow`, `source -> sink`, or
-`source -> transform -> sink`. An optional PR number compares that PR with `seatunnel_ref` on the
-same worker in `base -> PR -> PR -> base` order. The comparison report uses the median of the two
-baseline and two candidate runs and shows a direction-adjusted percentage; positive means the
-candidate moved in the favorable direction.
+Manual runs accept any JMH class name, method name, or regular expression through the `benchmarks`
+input; `.*` runs every current and future benchmark without maintaining a workflow-side scenario
+list. An optional PR number compares that PR with `seatunnel_ref` on the same worker in
+`base -> PR -> PR -> base` order. The comparison report uses the median of the two baseline and two
+candidate runs and shows a direction-adjusted percentage; positive means the candidate moved in the
+favorable direction.
 
 GitHub-hosted runners can execute the workflow reliably while still having materially different
 host CPU performance. Treat these artifacts as trend and smoke-test data, not as a regression gate
