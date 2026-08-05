@@ -92,7 +92,7 @@ following command checks whether Zeta can sustain 250,000 scheduled rows per sec
 
 ```bash
 java -jar seatunnel-benchmarks/target/benchmarks.jar \
-  'SeaTunnelPipelineBenchmark.sourceTransformSink' \
+  'sourceTransformSink$' \
   -p offeredRatePerSecond=250000 \
   -p parallelism=4 \
   -p payloadSize=256 \
@@ -120,6 +120,9 @@ java -jar seatunnel-benchmarks/target/benchmarks.jar \
   'SeaTunnelPipelineBenchmark.*Trace'
 ```
 
+JMH selectors are regular expressions. Append `$` when selecting one exact method; without it,
+`sourceTransformSink` also matches methods whose names start with that text.
+
 ### Run the SeaTunnelRow Microbenchmarks
 
 ```bash
@@ -138,7 +141,8 @@ The `Benchmarks` workflow runs on Java 8 and 11. Manual runs accept these inputs
 | Input | Default | Description |
 |---|---|---|
 | `seatunnel_ref` | `dev` | Branch, tag, or commit to benchmark. |
-| `benchmarks` | `.*` | JMH class, method, or regular expression; `.*` runs all cases. |
+| `benchmarks` | `.*` | Common JMH selector chosen from a dropdown; `.*` runs all cases. |
+| `custom_benchmarks` | empty | Optional class, method, or regular expression that overrides the dropdown. |
 | `pr_number` | empty | Compares the PR with `seatunnel_ref` on the same worker. |
 
 The workflow uploads raw JMH JSON, normalized reports, pipeline JSON, and the runner's CPU, JDK,
