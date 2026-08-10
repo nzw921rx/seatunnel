@@ -17,11 +17,13 @@
 
 package org.apache.seatunnel.connectors.seatunnel.redis.sink;
 
+import org.apache.seatunnel.api.sink.SinkWriter;
 import org.apache.seatunnel.api.table.type.BasicType;
 import org.apache.seatunnel.api.table.type.RowKind;
 import org.apache.seatunnel.api.table.type.SeaTunnelDataType;
 import org.apache.seatunnel.api.table.type.SeaTunnelRow;
 import org.apache.seatunnel.api.table.type.SeaTunnelRowType;
+import org.apache.seatunnel.common.utils.function.RunnableWithException;
 import org.apache.seatunnel.connectors.seatunnel.redis.client.RedisClient;
 import org.apache.seatunnel.connectors.seatunnel.redis.config.RedisBaseOptions;
 import org.apache.seatunnel.connectors.seatunnel.redis.config.RedisDataType;
@@ -30,10 +32,14 @@ import org.apache.seatunnel.connectors.seatunnel.redis.config.RedisParameters;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
 import java.util.Arrays;
 
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 public class RedisSinkWriterTest {
@@ -64,6 +70,32 @@ public class RedisSinkWriterTest {
         when(mockRedisParameters.getBatchSize()).thenReturn(3);
         when(mockRedisParameters.getFormat()).thenReturn(RedisBaseOptions.Format.JSON);
         when(mockRedisParameters.getFieldDelimiter()).thenReturn(",");
+    }
+
+    @Test
+    void shouldRegisterAndExecuteTimerFlush() throws Exception {
+        SinkWriter.Context context = Mockito.mock(SinkWriter.Context.class);
+        ArgumentCaptor<RunnableWithException> actionCaptor =
+                ArgumentCaptor.forClass(RunnableWithException.class);
+        when(mockRedisParameters.getKeyField()).thenReturn("id");
+        when(mockRedisParameters.getRedisDataType()).thenReturn(RedisDataType.STRING);
+        when(mockRedisParameters.getExpire()).thenReturn(-1L);
+
+        redisSinkWriter = new RedisSinkWriter(rowType, mockRedisParameters, context);
+        SeaTunnelRow row = new SeaTunnelRow(new Object[] {1, "Alice", 25, "alice@test.com"});
+        row.setRowKind(RowKind.INSERT);
+        redisSinkWriter.write(row);
+
+        verify(context, times(1)).registerFlushAction(actionCaptor.capture());
+        verify(mockRedisClient, never())
+                .batchWriteString(
+                        Mockito.anyList(), Mockito.anyList(), Mockito.anyList(), Mockito.anyLong());
+
+        actionCaptor.getValue().run();
+
+        verify(mockRedisClient, times(1))
+                .batchWriteString(
+                        Mockito.anyList(), Mockito.anyList(), Mockito.anyList(), Mockito.anyLong());
     }
 
     @Test

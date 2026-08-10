@@ -51,7 +51,7 @@ public class RedisSink extends AbstractSimpleSink<SeaTunnelRow, Void>
 
     @Override
     public RedisSinkWriter createWriter(SinkWriter.Context context) throws IOException {
-        return new RedisSinkWriter(seaTunnelRowType, redisParameters);
+        return new RedisSinkWriter(seaTunnelRowType, redisParameters, context);
     }
 
     @Override

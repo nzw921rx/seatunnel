@@ -300,6 +300,46 @@ public abstract class RedisTestCaseTemplateIT extends TestSuiteBase implements T
     }
 
     @TestTemplate
+    @DisabledOnContainer(
+            value = {},
+            type = {EngineType.SPARK, EngineType.FLINK},
+            disabledReason =
+                    "engine-level timer flush (sink.flush.interval) is only supported on Zeta engine")
+    public void testRedisTimerFlush(TestContainer container) throws Exception {
+        String timerFlushKey = "timer_flush_list";
+        jedis.del(timerFlushKey);
+
+        CompletableFuture<Container.ExecResult> jobFuture =
+                CompletableFuture.supplyAsync(
+                        () -> {
+                            try {
+                                return container.executeJob("/fake_to_redis_timer_flush.conf");
+                            } catch (Exception e) {
+                                throw new RuntimeException(e);
+                            }
+                        });
+
+        await().atMost(60, TimeUnit.SECONDS)
+                .pollInterval(500, TimeUnit.MILLISECONDS)
+                .untilAsserted(
+                        () -> {
+                            Assertions.assertFalse(
+                                    jobFuture.isDone(),
+                                    "The bounded job must still be running when timer flush publishes buffered rows");
+                            long visibleRows = jedis.llen(timerFlushKey);
+                            Assertions.assertTrue(
+                                    visibleRows > 0 && visibleRows < 5,
+                                    "Timer flush should publish a partial batch before the source finishes, but visible row count was "
+                                            + visibleRows);
+                        });
+
+        Container.ExecResult jobResult = jobFuture.get(60, TimeUnit.SECONDS);
+        Assertions.assertEquals(0, jobResult.getExitCode(), jobResult.getStderr());
+        Assertions.assertEquals(5, jedis.llen(timerFlushKey));
+        jedis.del(timerFlushKey);
+    }
+
+    @TestTemplate
     public void testRedisWithExpire(TestContainer container)
             throws IOException, InterruptedException {
         Container.ExecResult execResult = container.executeJob("/redis-to-redis-expire.conf");

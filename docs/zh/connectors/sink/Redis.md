@@ -23,7 +23,7 @@ Redis 接收器连接器可以在批处理或流处理作业中把上游数据�
 - [ ] [精确一次](../../introduction/concepts/connector-v2-features.md)
 - [ ] [变更数据捕获](../../introduction/concepts/connector-v2-features.md)
 - [x] [支持多表写入](../../introduction/concepts/connector-v2-features.md)
-- [ ] [定时刷新](../../introduction/concepts/connector-v2-features.md)
+- [x] [定时刷新](../../introduction/concepts/connector-v2-features.md)
 
 ## 支持的数据源信息
 
@@ -92,6 +92,22 @@ Redis 接收器连接器可以在批处理或流处理作业中把上游数据�
 
 多表作业中，`key` 可以包含 `${table_name}`，这样不同上游表的数据会写入不同 Redis key，例如
 `key = "redis-result-${table_name}"`。
+
+## 定时刷新
+
+定时刷新是仅由 Zeta 支持的引擎级能力。在作业的 `env` 中配置 `sink.flush.interval` 后，即使尚未达到
+`batch_size`，Redis Sink 也会写出待处理的 Redis 命令。Spark 和 Flink 不会注入 `FlushSignal`，因此不会触发
+这种定时刷新。
+
+```hocon
+env {
+  sink.flush.interval = 5000
+}
+```
+
+Redis 定时刷新复用连接器现有的非事务批量写入路径。Redis Sink 没有 2PC 精确一次写入器，因此定时刷新提供的
+是至少一次语义。发生重试时，`LIST` 中可能产生重复项；使用确定性 key 的 `STRING`/`KEY`，或使用确定性 field
+的 `HASH`，可以让重复写入覆盖同一目标。
 
 ## 示例
 

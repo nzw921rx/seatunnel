@@ -21,6 +21,7 @@ import org.apache.seatunnel.shade.org.apache.commons.lang3.StringUtils;
 
 import org.apache.seatunnel.api.common.SeaTunnelAPIErrorCode;
 import org.apache.seatunnel.api.serialization.SerializationSchema;
+import org.apache.seatunnel.api.sink.SinkWriter;
 import org.apache.seatunnel.api.sink.SupportMultiTableSinkWriter;
 import org.apache.seatunnel.api.table.type.RowKind;
 import org.apache.seatunnel.api.table.type.SeaTunnelRow;
@@ -68,6 +69,13 @@ public class RedisSinkWriter extends AbstractSinkWriter<SeaTunnelRow, Void>
     private final List<String> valueBuffer;
 
     public RedisSinkWriter(SeaTunnelRowType seaTunnelRowType, RedisParameters redisParameters) {
+        this(seaTunnelRowType, redisParameters, null);
+    }
+
+    public RedisSinkWriter(
+            SeaTunnelRowType seaTunnelRowType,
+            RedisParameters redisParameters,
+            SinkWriter.Context context) {
         this.seaTunnelRowType = seaTunnelRowType;
         this.redisParameters = redisParameters;
         this.serializationSchema = createSerializationSchema(redisParameters, seaTunnelRowType);
@@ -76,6 +84,9 @@ public class RedisSinkWriter extends AbstractSinkWriter<SeaTunnelRow, Void>
         this.rowKinds = new ArrayList<>(batchSize);
         this.keyBuffer = new ArrayList<>(batchSize);
         this.valueBuffer = new ArrayList<>(batchSize);
+        if (context != null) {
+            context.registerFlushAction(this::timerFlush);
+        }
     }
 
     @Override
@@ -289,6 +300,11 @@ public class RedisSinkWriter extends AbstractSinkWriter<SeaTunnelRow, Void>
     public Optional<Void> prepareCommit() {
         flush();
         return Optional.empty();
+    }
+
+    /** Flushes buffered Redis commands when the Zeta engine delivers a timer flush signal. */
+    private void timerFlush() {
+        flush();
     }
 
     private synchronized void flush() {

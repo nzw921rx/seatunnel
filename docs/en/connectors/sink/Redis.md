@@ -23,7 +23,7 @@ the connector can build the Redis key from one or more upstream fields, for exam
 - [ ] [exactly-once](../../introduction/concepts/connector-v2-features.md)
 - [ ] [cdc](../../introduction/concepts/connector-v2-features.md)
 - [x] [support multiple table write](../../introduction/concepts/connector-v2-features.md)
-- [ ] [timer flush](../../introduction/concepts/connector-v2-features.md)
+- [x] [timer flush](../../introduction/concepts/connector-v2-features.md)
 
 ## Supported DataSource Info
 
@@ -95,6 +95,23 @@ Replica count for multi-table sink writers. It applies when upstream rows carry 
 
 For multi-table jobs, `key` may include `${table_name}` so rows from different upstream tables are written to separate
 Redis keys, for example `key = "redis-result-${table_name}"`.
+
+## Timer Flush
+
+Timer flush is an engine-level feature supported only by Zeta. Configure `sink.flush.interval` in the job `env` block
+to write pending Redis commands even when `batch_size` has not been reached. Spark and Flink do not inject
+`FlushSignal` records and therefore do not trigger this scheduled flush.
+
+```hocon
+env {
+  sink.flush.interval = 5000
+}
+```
+
+Redis timer flush uses the connector's existing non-transactional batch write path. The Redis sink does not provide a
+2PC exactly-once writer, so timer flush provides at-least-once delivery. A retry can duplicate entries in `LIST`; using
+deterministic keys with `STRING`/`KEY` or deterministic fields with `HASH` can make repeated writes overwrite the same
+target instead.
 
 ## Examples
 
