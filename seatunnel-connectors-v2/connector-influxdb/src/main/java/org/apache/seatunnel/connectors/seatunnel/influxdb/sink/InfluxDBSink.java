@@ -48,7 +48,7 @@ public class InfluxDBSink extends AbstractSimpleSink<SeaTunnelRow, Void>
 
     @Override
     public InfluxDBSinkWriter createWriter(SinkWriter.Context context) throws IOException {
-        return new InfluxDBSinkWriter(sinkConfig, seaTunnelRowType);
+        return new InfluxDBSinkWriter(sinkConfig, seaTunnelRowType, context);
     }
 
     @Override

@@ -17,6 +17,7 @@
 
 package org.apache.seatunnel.connectors.seatunnel.influxdb.sink;
 
+import org.apache.seatunnel.api.sink.SinkWriter;
 import org.apache.seatunnel.api.sink.SupportMultiTableSinkWriter;
 import org.apache.seatunnel.api.table.type.SeaTunnelRow;
 import org.apache.seatunnel.api.table.type.SeaTunnelRowType;
@@ -53,7 +54,8 @@ public class InfluxDBSinkWriter extends AbstractSinkWriter<SeaTunnelRow, Void>
     private final List<Point> batchList;
     private volatile Exception flushException;
 
-    public InfluxDBSinkWriter(SinkConfig sinkConfig, SeaTunnelRowType seaTunnelRowType)
+    public InfluxDBSinkWriter(
+            SinkConfig sinkConfig, SeaTunnelRowType seaTunnelRowType, SinkWriter.Context context)
             throws ConnectException {
         this.sinkConfig = sinkConfig;
         log.info("sinkConfig is {}", JsonUtils.toJsonString(sinkConfig));
@@ -67,6 +69,7 @@ public class InfluxDBSinkWriter extends AbstractSinkWriter<SeaTunnelRow, Void>
         this.batchList = new ArrayList<>();
 
         connect();
+        context.registerFlushAction(this::timerFlush);
     }
 
     @Override
@@ -138,6 +141,11 @@ public class InfluxDBSinkWriter extends AbstractSinkWriter<SeaTunnelRow, Void>
         }
 
         batchList.clear();
+    }
+
+    /** Flushes pending points when the Zeta engine delivers a timer flush signal. */
+    private void timerFlush() throws IOException {
+        flush();
     }
 
     private void checkFlushException() {

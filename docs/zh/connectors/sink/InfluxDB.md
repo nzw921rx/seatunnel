@@ -20,7 +20,7 @@ import ChangeLog from '../changelog/connector-influxdb.md';
 - [ ] [精确一次](../../introduction/concepts/connector-v2-features.md)
 - [ ] [变更数据捕获](../../introduction/concepts/connector-v2-features.md)
 - [x] [支持多表写入](../../introduction/concepts/connector-v2-features.md)
-- [ ] [定时刷新](../../introduction/concepts/connector-v2-features.md)
+- [x] [定时刷新](../../introduction/concepts/connector-v2-features.md)
 
 ## 数据类型映射
 
@@ -135,6 +135,22 @@ InfluxDB 客户端读超时时间，单位秒。
 ### 通用选项
 
 Sink 插件通用参数，请参考 [Sink 通用选项](../common-options/sink-common-options.md) 详见。
+
+## 定时刷新
+
+定时刷新是仅由 Zeta 支持的引擎级能力。在作业的 `env` 中配置 `sink.flush.interval` 后，即使尚未达到
+`batch_size`，InfluxDB Sink 也会写出待处理的 point。Spark 和 Flink 不会注入 `FlushSignal`，因此不会触发
+这种定时刷新。
+
+```hocon
+env {
+  sink.flush.interval = 5000
+}
+```
+
+InfluxDB 定时刷新复用连接器现有的非事务批量写入和重试路径。InfluxDB Sink 没有 2PC 精确一次写入器，因此
+定时刷新提供的是至少一次语义。重试时，measurement、tag 集合和时间戳都相同的 point 会覆盖同一个 point；
+如果使用处理时间作为时间戳或 tag 发生变化，则可能产生额外的 point。
 
 ## 任务示例
 

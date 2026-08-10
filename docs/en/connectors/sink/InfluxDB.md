@@ -21,7 +21,7 @@ fields.
 - [ ] [exactly-once](../../introduction/concepts/connector-v2-features.md)
 - [ ] [cdc](../../introduction/concepts/connector-v2-features.md)
 - [x] [support multiple table write](../../introduction/concepts/connector-v2-features.md)
-- [ ] [timer flush](../../introduction/concepts/connector-v2-features.md)
+- [x] [timer flush](../../introduction/concepts/connector-v2-features.md)
 
 ## Data Type Mapping
 
@@ -138,6 +138,23 @@ The timeout for connecting to InfluxDB, in milliseconds. The default is `15000`.
 ### common options
 
 Sink plugin common parameters, please refer to [Sink Common Options](../common-options/sink-common-options.md) for details.
+
+## Timer Flush
+
+Timer flush is an engine-level feature supported only by Zeta. Configure `sink.flush.interval` in the job `env` block
+to write pending InfluxDB points even when `batch_size` has not been reached. Spark and Flink do not inject
+`FlushSignal` records and therefore do not trigger this scheduled flush.
+
+```hocon
+env {
+  sink.flush.interval = 5000
+}
+```
+
+InfluxDB timer flush reuses the connector's existing non-transactional batch write and retry path. The InfluxDB sink
+does not provide a 2PC exactly-once writer, so timer flush provides at-least-once delivery. On retry, points with the
+same measurement, tag set, and timestamp overwrite the same point; processing-time timestamps or changed tags can
+instead create additional points.
 
 ## Task Example
 

@@ -25,7 +25,9 @@ import org.apache.seatunnel.connectors.seatunnel.influxdb.client.InfluxDBClient;
 import org.apache.seatunnel.connectors.seatunnel.influxdb.config.InfluxDBConfig;
 import org.apache.seatunnel.e2e.common.TestResource;
 import org.apache.seatunnel.e2e.common.TestSuiteBase;
+import org.apache.seatunnel.e2e.common.container.EngineType;
 import org.apache.seatunnel.e2e.common.container.TestContainer;
+import org.apache.seatunnel.e2e.common.junit.DisabledOnContainer;
 
 import org.influxdb.InfluxDB;
 import org.influxdb.dto.BatchPoints;
@@ -55,6 +57,7 @@ import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -211,6 +214,45 @@ public class InfluxdbIT extends TestSuiteBase implements TestResource {
     }
 
     @TestTemplate
+    @DisabledOnContainer(
+            value = {},
+            type = {EngineType.SPARK, EngineType.FLINK},
+            disabledReason =
+                    "engine-level timer flush (sink.flush.interval) is only supported on Zeta engine")
+    public void testInfluxdbTimerFlush(TestContainer container) throws Exception {
+        String measurement = "timer_flush";
+        CompletableFuture<Container.ExecResult> jobFuture =
+                CompletableFuture.supplyAsync(
+                        () -> {
+                            try {
+                                return container.executeJob("/fake_to_influxdb_timer_flush.conf");
+                            } catch (Exception e) {
+                                throw new RuntimeException(e);
+                            }
+                        });
+
+        org.awaitility.Awaitility.await()
+                .atMost(60, TimeUnit.SECONDS)
+                .pollInterval(500, TimeUnit.MILLISECONDS)
+                .ignoreExceptions()
+                .untilAsserted(
+                        () -> {
+                            Assertions.assertFalse(
+                                    jobFuture.isDone(),
+                                    "The bounded job must still be running when timer flush publishes buffered points");
+                            int visibleRows = measurementRowCount(measurement);
+                            Assertions.assertTrue(
+                                    visibleRows > 0 && visibleRows < 5,
+                                    "Timer flush should publish a partial batch before the source finishes, but visible row count was "
+                                            + visibleRows);
+                        });
+
+        Container.ExecResult jobResult = jobFuture.get(60, TimeUnit.SECONDS);
+        Assertions.assertEquals(0, jobResult.getExitCode(), jobResult.getStderr());
+        Assertions.assertEquals(5, measurementRowCount(measurement));
+    }
+
+    @TestTemplate
     public void testInfluxdbWithTz(TestContainer container)
             throws IOException, InterruptedException {
         Container.ExecResult execResult =
@@ -296,6 +338,16 @@ public class InfluxdbIT extends TestSuiteBase implements TestResource {
         List<List<Object>> sinkValues =
                 sinkQueryResult.getResults().get(0).getSeries().get(0).getValues();
         return sinkValues;
+    }
+
+    private int measurementRowCount(String measurement) {
+        QueryResult result =
+                influxDB.query(
+                        new Query("select * from \"" + measurement + "\"", INFLUXDB_DATABASE));
+        if (result.getResults().isEmpty() || result.getResults().get(0).getSeries() == null) {
+            return 0;
+        }
+        return result.getResults().get(0).getSeries().get(0).getValues().size();
     }
 
     private void initializeInfluxDBClient() throws ConnectException {
