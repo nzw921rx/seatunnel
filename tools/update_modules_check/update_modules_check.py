@@ -16,6 +16,57 @@
 # !/usr/bin/python
 import json
 import sys
+import zlib
+
+
+# Selected from the module durations in GitHub Actions run 31611542978, where
+# the resulting seven shards were estimated at 79.1-89.6 minutes. The stable
+# hash keeps existing modules in the same shard when modules are added or removed,
+# without maintaining per-module durations or assignments.
+CONNECTOR_IT_SHARD_SEED = "37709"
+
+FULL_CONNECTOR_IT_EXCLUDED_MODULES = {
+    "connector-jdbc-e2e",
+    "connector-kafka-e2e",
+    "connector-rocketmq-e2e",
+    "connector-kudu-e2e",
+    "connector-amazonsqs-e2e",
+    "connector-doris-e2e",
+    "connector-paimon-e2e",
+    "connector-cdc-oracle-e2e",
+    "connector-file-local-e2e",
+    "connector-file-sftp-e2e",
+    "connector-redis-e2e",
+    "connector-sensorsdata-e2e",
+    "connector-elasticsearch-e2e",
+    "connector-cdc-mysql-e2e",
+    "connector-seatunnel-e2e-base",
+    "connector-console-seatunnel-e2e",
+    "seatunnel-edge-agent-e2e",
+    "connector-iceberg-e2e",
+    "connector-hbase-e2e",
+}
+
+UPDATED_CONNECTOR_IT_EXCLUDED_MODULES = {
+    "connector-kudu-e2e",
+    "connector-amazonsqs-e2e",
+    "connector-kafka-e2e",
+    "connector-rocketmq-e2e",
+    "seatunnel-engine-k8s-e2e",
+    "connector-seatunnel-e2e-base",
+    "connector-console-seatunnel-e2e",
+    "connector-doris-e2e",
+    "connector-paimon-e2e",
+    "connector-cdc-oracle-e2e",
+    "connector-file-local-e2e",
+    "connector-file-sftp-e2e",
+    "connector-redis-e2e",
+    "connector-elasticsearch-e2e",
+    "connector-cdc-mysql-e2e",
+    "seatunnel-edge-agent-e2e",
+    "connector-iceberg-e2e",
+    "connector-hbase-e2e",
+}
 
 
 def get_cv2_modules(files):
@@ -141,35 +192,23 @@ def get_deleted_modules(files):
     print(output_module)
 
 
-def get_sub_it_modules(modules, total_num, current_num):
-    modules_arr = list(dict.fromkeys(modules.split(",")))
-    modules_arr.remove("connector-jdbc-e2e")
-    modules_arr.remove("connector-kafka-e2e")
-    modules_arr.remove("connector-rocketmq-e2e")
-    modules_arr.remove("connector-kudu-e2e")
-    modules_arr.remove("connector-amazonsqs-e2e")
-    modules_arr.remove("connector-doris-e2e")
-    modules_arr.remove("connector-paimon-e2e")
-    modules_arr.remove("connector-cdc-oracle-e2e")
-    modules_arr.remove("connector-file-local-e2e")
-    modules_arr.remove("connector-file-sftp-e2e")
-    modules_arr.remove("connector-redis-e2e")
-    modules_arr.remove("connector-sensorsdata-e2e")
-    modules_arr.remove("connector-elasticsearch-e2e")
-    modules_arr.remove("connector-cdc-mysql-e2e")
-    if "connector-seatunnel-e2e-base" in modules_arr:
-        modules_arr.remove("connector-seatunnel-e2e-base")
-    if "connector-console-seatunnel-e2e" in modules_arr:
-        modules_arr.remove("connector-console-seatunnel-e2e")
-    if "seatunnel-edge-agent-e2e" in modules_arr:
-        modules_arr.remove("seatunnel-edge-agent-e2e")
-    output = ""
-    for i, module in enumerate(modules_arr):
-        if len(module) > 0 and i % int(total_num) == int(current_num):
-            output = output + ",:" + module
+def split_connector_it_modules(modules, total_num):
+    shards = [[] for _ in range(total_num)]
+    for module in sorted(set(modules)):
+        shard_key = f"{CONNECTOR_IT_SHARD_SEED}:{module}".encode("utf-8")
+        shard = zlib.crc32(shard_key) % total_num
+        shards[shard].append(module)
+    return shards
 
-    output = output[1:len(output)]
-    print(output)
+
+def get_sub_it_modules(modules, total_num, current_num):
+    modules_arr = [
+        module
+        for module in dict.fromkeys(modules.split(","))
+        if module and module not in FULL_CONNECTOR_IT_EXCLUDED_MODULES
+    ]
+    shards = split_connector_it_modules(modules_arr, int(total_num))
+    print(",".join(":" + module for module in shards[int(current_num)]))
 
 
 def get_sub_update_it_modules(modules, total_num, current_num):
@@ -178,42 +217,11 @@ def get_sub_update_it_modules(modules, total_num, current_num):
     modules = modules[1:]
     # connector-jdbc-e2e-common,:connector-jdbc-e2e-part-1 --> [connector-jdbc-e2e-common, connector-jdbc-e2e-part-1]
     module_list = list(dict.fromkeys(modules.split(",:")))
-    if "connector-kudu-e2e" in module_list:
-        module_list.remove("connector-kudu-e2e")
-    if "connector-amazonsqs-e2e" in module_list:
-        module_list.remove("connector-amazonsqs-e2e")
-    if "connector-kafka-e2e" in module_list:
-        module_list.remove("connector-kafka-e2e")
-    if "connector-rocketmq-e2e" in module_list:
-        module_list.remove("connector-rocketmq-e2e")
-    if "seatunnel-engine-k8s-e2e" in module_list:
-        module_list.remove("seatunnel-engine-k8s-e2e")
-    if "connector-seatunnel-e2e-base" in module_list:
-        module_list.remove("connector-seatunnel-e2e-base")
-    if "connector-console-seatunnel-e2e" in module_list:
-        module_list.remove("connector-console-seatunnel-e2e")
-    if "connector-doris-e2e" in module_list:
-        module_list.remove("connector-doris-e2e")
-    if "connector-paimon-e2e" in module_list:
-        module_list.remove("connector-paimon-e2e")
-    if "connector-cdc-oracle-e2e" in module_list:
-        module_list.remove("connector-cdc-oracle-e2e")
-    if "connector-file-local-e2e" in module_list:
-        module_list.remove("connector-file-local-e2e")
-    if "connector-file-sftp-e2e" in module_list:
-        module_list.remove("connector-file-sftp-e2e")
-    if "connector-redis-e2e" in module_list:
-        module_list.remove("connector-redis-e2e")
-    if "connector-elasticsearch-e2e" in module_list:
-        module_list.remove("connector-elasticsearch-e2e")
-    if "connector-cdc-mysql-e2e" in module_list:
-        module_list.remove("connector-cdc-mysql-e2e")
-    if "connector-seatunnel-e2e-base" in module_list:
-        module_list.remove("connector-seatunnel-e2e-base")
-    if "connector-console-seatunnel-e2e" in module_list:
-        module_list.remove("connector-console-seatunnel-e2e")
-    if "seatunnel-edge-agent-e2e" in module_list:
-        module_list.remove("seatunnel-edge-agent-e2e")
+    module_list = [
+        module
+        for module in module_list
+        if module not in UPDATED_CONNECTOR_IT_EXCLUDED_MODULES
+    ]
     for i, module in enumerate(module_list):
         if len(module) > 0 and i % int(total_num) == int(current_num):
             final_modules.append(":" + module)
