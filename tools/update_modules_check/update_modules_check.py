@@ -190,14 +190,19 @@ def split_full_connector_it_modules(modules, total_num):
     return shards
 
 
-def get_sub_it_modules(modules, total_num, current_num):
+def build_sub_it_modules(modules, total_num, current_num):
+    """Build one stable full connector shard after applying ownership exclusions."""
     # The JDBC aggregate is handled by the dedicated JDBC jobs for full runs,
     # while direct JDBC changes still rely on the updated-module shards.
     modules_arr = _filter_shared_it_modules(
         modules.split(","), {"connector-jdbc-e2e"}
     )
     shards = split_full_connector_it_modules(modules_arr, int(total_num))
-    print(",".join(":" + module for module in shards[int(current_num)]))
+    return ",".join(":" + module for module in shards[int(current_num)])
+
+
+def get_sub_it_modules(modules, total_num, current_num):
+    print(build_sub_it_modules(modules, total_num, current_num))
 
 
 def get_sub_update_it_modules(modules, total_num, current_num):
