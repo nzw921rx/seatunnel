@@ -24,6 +24,7 @@ from typing import Iterable
 
 PROTECTED_BRANCH_NAMES = {"dev", "main", "master"}
 RELEASE_BRANCH_PATTERN = re.compile(r"\d+\.\d+(?:\.\d+)?-release")
+FULL_CI_VALIDATION_REFS = {"refs/heads/feature/pr-11791-full-ci"}
 LIGHTWEIGHT_API_FILE_PREFIXES = (
     ".github/workflows/",
     "seatunnel-dist/",
@@ -35,6 +36,11 @@ LIGHTWEIGHT_API_FILES = {"bin/install-plugin.sh"}
 
 def should_force_full_api_check(repository_owner: str, github_ref: str) -> bool:
     """Return whether the backend workflow should bypass incremental CI scoping."""
+
+    # This fork-only branch validates PR #11791's complete connector job topology. The branch is
+    # intentionally absent from the PR itself and can be deleted after the validation run.
+    if github_ref in FULL_CI_VALIDATION_REFS:
+        return True
 
     if repository_owner != "apache":
         return False

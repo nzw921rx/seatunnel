@@ -46,6 +46,13 @@ class CiScopeTest(unittest.TestCase):
     def test_skip_force_full_api_check_for_fork_owner(self) -> None:
         self.assertFalse(should_force_full_api_check("DanielLeens", "refs/heads/dev"))
 
+    def test_force_full_api_check_on_pr_11791_validation_branch(self) -> None:
+        self.assertTrue(
+            should_force_full_api_check(
+                "nzw921rx", "refs/heads/feature/pr-11791-full-ci"
+            )
+        )
+
     def test_skip_force_full_api_check_on_pull_request_merge_ref(self) -> None:
         self.assertFalse(should_force_full_api_check("apache", "refs/pull/123/merge"))
 
