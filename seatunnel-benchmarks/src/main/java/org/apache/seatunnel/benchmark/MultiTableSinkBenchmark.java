@@ -30,6 +30,7 @@ import org.openjdk.jmh.annotations.TearDown;
 import org.openjdk.jmh.annotations.Threads;
 import org.openjdk.jmh.runner.Runner;
 import org.openjdk.jmh.runner.RunnerException;
+import org.openjdk.jmh.runner.options.Options;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
 
 import java.util.concurrent.TimeUnit;
@@ -40,11 +41,11 @@ import java.util.concurrent.TimeUnit;
 public class MultiTableSinkBenchmark extends BenchmarkBase {
 
     public static void main(String[] args) throws RunnerException {
-        new Runner(
-                        new OptionsBuilder()
-                                .include(MultiTableSinkBenchmark.class.getCanonicalName() + ".*")
-                                .build())
-                .run();
+        Options options =
+                new OptionsBuilder()
+                        .include(".*" + MultiTableSinkBenchmark.class.getCanonicalName() + ".*")
+                        .build();
+        new Runner(options).run();
     }
 
     @Benchmark
